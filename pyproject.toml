@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vepbench"
+version = "0.1.0"
+description = "Saturation variant-effect and stability prediction across many predictors, for membrane-protein biogenesis benchmarking"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+# The orchestrator stays thin. Every predictor runs in its own isolated
+# environment and is reached over subprocess, so no ML stack appears here.
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "requests>=2.28",
+]
+
+[project.optional-dependencies]
+bench = ["matplotlib>=3.7"]
+test = ["pytest>=7.4"]
+dev = ["pytest>=7.4", "ruff>=0.4", "matplotlib>=3.7"]
+
+[project.scripts]
+vepbench = "vepbench.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["vepbench*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "BLE", "PIE", "PL", "RUF", "EXE"]
+ignore = ["E501", "PLR0913", "PLR2004", "PLR0912", "PLR0915", "PLR0917", "RUF005"]
+
+[tool.ruff.lint.per-file-ignores]
+# Heavy dependencies are imported inside functions on purpose, so the
+# orchestrator never loads a predictor's stack and the CLI starts quickly.
+"scripts/runners/*.py" = ["PLC0415", "E402"]
+"scripts/*.py" = ["PLC0415", "E402", "RUF001"]
+"vepbench/cli.py" = ["PLC0415"]
+"vepbench/features.py" = ["PLC0415"]
+"vepbench/benchmark.py" = ["PLC0415"]
+"vepbench/msa.py" = ["PLC0415"]
+"vepbench/predictors/*.py" = ["PLC0415"]
+"tests/*.py" = ["PLC0415"]

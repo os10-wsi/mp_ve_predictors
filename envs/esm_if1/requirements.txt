@@ -1,0 +1,11 @@
+# ESM-IF1 only.
+#
+# Kept apart from the main esm environment because ESM-IF1 needs torch-scatter
+# and torch-sparse, whose prebuilt wheels lag several torch releases behind.
+# torch 2.4.1 is pinned because PyG publishes wheels for it.
+torch==2.4.1
+numpy>=1.26,<3
+pandas>=2.2
+fair-esm==2.0.0
+biotite>=0.41
+torch-geometric>=2.6

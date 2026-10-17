@@ -351,7 +351,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 
 | Predictor | Needs | Output | Direction | Confirmed | GPU | VRAM | Supervised | Megascale | ProteinGym | Environment |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `esm_if1` | structure | log_likelihood_ratio | more tolerated | yes | recommended | 2 GB | no | no | no | `esm` |
+| `esm_if1` | structure | log_likelihood_ratio | more tolerated | yes | recommended | 2 GB | no | no | no | `esm_if1` |
 | `proteinmpnn` | structure | log_likelihood_ratio | more tolerated | yes | no | 1 GB | no | no | no | `proteinmpnn` |
 
 
@@ -366,9 +366,9 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Score**: log_likelihood_ratio, higher is more tolerated
 - **Convention source**: conditional log-likelihood difference log p(mut|backbone) - log p(wt|backbone)
 - **Approximate VRAM**: 2 GB
-- **Install**: `python -m vepbench install-env esm`
-- **Status here**: environment `esm` is installed
-- **Notes**: The only model here still distributed solely through fair-esm, so its weights come from dl.fbaipublicfiles.com rather than Hugging Face. Weights are CC-BY-NC, so commercial use is restricted.
+- **Install**: `python -m vepbench install-env esm_if1`
+- **Status here**: environment `esm_if1` is not installed
+- **Notes**: The only model here still distributed solely through fair-esm, so its weights come from dl.fbaipublicfiles.com rather than Hugging Face. Weights are CC-BY-NC, so commercial use is restricted. It lives in its own environment because torch-scatter and torch-sparse, which it requires, publish wheels only for older torch releases.
 
 #### `proteinmpnn` — ProteinMPNN
 

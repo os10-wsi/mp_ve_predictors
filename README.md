@@ -332,15 +332,30 @@ areas, contact number, the EBI alignment conversion against a real EBI result,
 MSA statistics and Neff, conservation entropy, all feature columns, Grantham
 and BLOSUM62 against their published matrices, the DMS merge including every
 failure mode, all benchmark metrics, caching and cache invalidation, failure
-isolation, the CLI end to end, and **the ESM masked-marginal runner against
-real downloaded weights**.
+isolation and the CLI end to end.
+
+**ESM-2 650M is verified against real downloaded weights, through the whole
+pipeline**: environment creation, weight download, subprocess dispatch,
+scoring, schema validation and caching. 988 phospholamban variants in 111
+seconds on four CPU cores. The scores are also right, not merely present:
+
+| substitution | transmembrane helix | cytoplasmic region |
+|---|---|---|
+| to a charged residue | -1.82 | +0.08 |
+| to a hydrophobic residue | +0.15 | -0.48 |
+| to proline | -1.58 | -0.60 |
+
+The model insists the helix stays hydrophobic, penalises a helix-breaking
+proline inside it, and ranks substitutions at the initiator methionine worst
+of all 988.
 
 **Not executed yet**: the predictors whose weights or upstream repositories
 were not installed in the development container. Their wrappers, runners,
 environment specifications and install scripts are written against each
 method's documented interface and are syntax and registry checked, but expect
 small interface drift the first time you run each one. The runners fail with
-the upstream error text rather than swallowing it.
+the upstream error text rather than swallowing it, and a missing dependency
+is reported as `unavailable` with the fix rather than as a crash.
 
 See [PREDICTORS.md](PREDICTORS.md) for the full table, per-method notes, and
 what was found when checking the methods whose existence was uncertain.

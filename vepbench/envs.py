@@ -81,6 +81,14 @@ register_env(EnvSpec(
           "and HF_TOKEN exported. ESM-IF1 weights come from dl.fbaipublicfiles.com.",
 ))
 register_env(EnvSpec(
+    name="esm_if1", python="3.11",
+    description="ESM-IF1 only. Separated from the main esm environment because it "
+                "needs torch-scatter and torch-sparse, whose prebuilt wheels lag "
+                "several torch releases behind.",
+    notes="Pinned to torch 2.4.1, for which PyG publishes wheels. Weights come from "
+          "dl.fbaipublicfiles.com, not Hugging Face.",
+))
+register_env(EnvSpec(
     name="huggingface", python="3.11",
     description="transformers models scored with masked marginals: SaProt, ProSST, "
                 "ProtT5 and Ankh.",

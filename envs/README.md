@@ -31,10 +31,13 @@ uv pip install --python envs/esm/.venv/bin/python \
   torch==2.6.0 --index-url https://download.pytorch.org/whl/cu121
 ```
 
-Three older environments (`eve`, `tranception`, `rasp`, `promep`, `s3f`) pin
-much older torch versions because the upstream code requires them. Those will
-pull their own CUDA runtime and may not match your driver; they are the most
-likely installs to need hand-holding.
+Several environments (`esm_if1`, `eve`, `tranception`, `rasp`, `promep`, `s3f`) pin
+older torch versions because the upstream code requires them. They pull their
+own CUDA runtime, which may not match your driver, and are the most likely
+installs to need hand-holding. `esm_if1` is pinned specifically because
+torch-scatter and torch-sparse publish wheels only for older torch builds; if
+that install fails, ESM-IF1 reports itself unavailable and everything else
+still runs.
 
 Runtime behaviour is controlled from the command line, not from these files:
 `--device`, `--dtype` and `--batch-size`. The default is CUDA with bfloat16
@@ -46,7 +49,8 @@ Approximate, before model weights:
 
 | environment | install | weights | VRAM at run time |
 |---|---|---|---|
-| esm | ~3 GB | ESM-1v 5 x 2.5 GB, ESM-2 650M 2.5 GB, ESM-2 3B 11 GB, ESM-IF1 0.5 GB | 3 to 13 GB |
+| esm | ~3 GB | ESM-1v 5 x 2.5 GB, ESM-2 650M 2.5 GB, ESM-2 3B 11 GB | 3 to 13 GB |
+| esm_if1 | ~2 GB | ESM-IF1 0.5 GB | ~2 GB |
 | huggingface | ~3 GB | SaProt 650M 2.6 GB, SaProt 1.3B 5 GB, ProSST 0.5 GB, ProtT5 11 GB, Ankh 7 GB | 2 to 6 GB |
 | proteinmpnn | ~3 GB | bundled, < 0.1 GB | ~1 GB |
 | eve, tranception | ~3 GB each | Tranception Large 3 GB | 6 to 8 GB |

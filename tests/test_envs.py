@@ -207,7 +207,9 @@ def test_verification_names_what_is_missing(tmp_path, monkeypatch):
         verify_env(spec, paths=paths)
     message = str(caught.value)
     assert "filelock" in message            # the module the cluster was missing
-    assert "install-env esm" in message     # and how to fix it
+    assert "transformers" in message        # named, not just "something failed"
+    # and it explains the shape of the failure, since a repair follows
+    assert "recorded as installed" in message
 
 
 def test_every_heavyweight_environment_is_verified():
@@ -238,3 +240,67 @@ def test_an_incomplete_environment_makes_predictors_unavailable(tmp_path, monkey
     assert not availability.available
     assert "did not finish" in availability.reason
     assert "install-env esm" in availability.reason
+
+
+def test_a_package_recorded_but_missing_is_reinstalled(monkeypatch, tmp_path):
+    """The cluster failure: metadata says installed, the files are gone.
+
+    A plain install compares requirements against installed metadata, so it
+    reports 'no changes' and skips. The build must notice and reinstall.
+    """
+    import vepbench.envs as envs_module
+    from vepbench.config import Paths
+
+    paths = Paths(root=tmp_path)
+    directory = paths.envs / "esm"
+    directory.mkdir(parents=True)
+    (directory / "requirements.txt").write_text("torch\ntransformers\n")
+
+    commands: list[list[str]] = []
+    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda cmd, **kw: commands.append(cmd) or type("R", (), {"returncode": 0})(),
+    )
+
+    # Fail verification once, as a broken environment would, then succeed as
+    # it would after the files are rewritten.
+    attempts = {"n": 0}
+
+    def fake_verify(spec, *, paths):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise envs_module.EnvError("cannot import filelock")
+
+    monkeypatch.setattr(envs_module, "verify_env", fake_verify)
+
+    envs_module.create_env(envs_module.get_env("esm"), paths=paths, backend="uv")
+
+    assert attempts["n"] == 2, "it should verify, repair, then verify again"
+    reinstall = [c for c in commands if "--reinstall" in c]
+    assert reinstall, "a failed verification must trigger a forced reinstall"
+    assert get_env("esm").marker(paths).exists(), "a repaired environment is complete"
+
+
+def test_a_damaged_environment_is_reported_not_marked(monkeypatch, tmp_path):
+    """If reinstalling does not fix it, say so and recommend --force."""
+    import vepbench.envs as envs_module
+    from vepbench.config import Paths
+
+    paths = Paths(root=tmp_path)
+    directory = paths.envs / "esm"
+    directory.mkdir(parents=True)
+    (directory / "requirements.txt").write_text("torch\n")
+
+    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr("subprocess.run",
+                        lambda cmd, **kw: type("R", (), {"returncode": 0})())
+
+    def always_fails(spec, *, paths):
+        raise envs_module.EnvError("cannot import torch")
+
+    monkeypatch.setattr(envs_module, "verify_env", always_fails)
+
+    with pytest.raises(EnvError, match="--force"):
+        envs_module.create_env(envs_module.get_env("esm"), paths=paths, backend="uv")
+    assert not get_env("esm").marker(paths).exists(), "a broken env must not be marked"

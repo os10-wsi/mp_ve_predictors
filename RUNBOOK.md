@@ -326,12 +326,17 @@ rebuilding, and `--force` rebuilds from scratch.
 
 An incomplete environment is the nastiest failure mode on a shared
 filesystem, because the interpreter is created in the first step, before a
-single requirement is installed. A pip run that dies partway, which on lustre
-usually means a dropped connection, leaves a working `python` and a
-half-filled `site-packages`. Every install finishes by importing a few key
-modules and only then writes a completion marker, so this is caught at
-install time instead of surfacing hours later as `No module named 'filelock'`
-inside a weight download or a runner.
+single requirement is installed. An install that dies partway leaves a
+working `python` and a half-filled `site-packages`.
+
+Worse, it can leave a package *recorded* as installed with its files missing.
+Both uv and pip compare the requirements against installed metadata, so they
+report "no changes" and skip, and re-running the install appears to succeed
+while fixing nothing. Every install therefore finishes by importing a few key
+modules; if any fail it reinstalls with the files rewritten and checks again,
+and only then writes the completion marker. If that second check also fails
+the environment is damaged rather than incomplete, and the error says to
+rebuild with `--force`.
 
 ### If the editable install is refused
 

@@ -316,6 +316,28 @@ def _create_with_conda(spec: EnvSpec, paths: Paths, venv: Path, backend: str) ->
         )
 
 
+def _reinstall(spec: EnvSpec, paths: Paths, backend: str) -> None:
+    """Force a reinstall of everything the environment declares.
+
+    A plain install compares the requirements against the installed
+    *metadata*, so an interrupted install that left a .dist-info behind
+    without its files reports as satisfied and is skipped. That is the usual
+    way an environment on a shared filesystem ends up with a package recorded
+    as present but not importable. Reinstalling rewrites the files.
+    """
+    requirements = spec.requirements(paths)
+    if not requirements.exists():
+        return
+    log.warning("%s is missing dependencies after install; reinstalling", spec.name)
+    if backend == UV_BACKEND:
+        command = [shutil.which(UV_BACKEND), "pip", "install", "--reinstall",
+                   "--python", str(spec.interpreter(paths)), "-r", str(requirements)]
+    else:
+        command = [str(spec.interpreter(paths)), "-m", "pip", "install",
+                   "--force-reinstall", "-r", str(requirements)]
+    subprocess.run(command, check=True)
+
+
 def _read_package_list(path: Path) -> list[str]:
     return [
         line.strip() for line in path.read_text().splitlines()
@@ -348,7 +370,19 @@ def create_env(
         log.info("running %s", install)
         subprocess.run(["bash", str(install)], check=True, cwd=str(directory))
 
-    verify_env(spec, paths=paths)
+    try:
+        verify_env(spec, paths=paths)
+    except EnvError:
+        _reinstall(spec, paths, chosen)
+        try:
+            verify_env(spec, paths=paths)
+        except EnvError as exc:
+            raise EnvError(
+                f"{exc}\n\nReinstalling did not fix it, so the environment is "
+                f"damaged rather than merely incomplete. Rebuild it from scratch:\n"
+                f"  python -m vepbench install-env {spec.name} --force"
+            ) from exc
+
     marker = spec.marker(paths)
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps({
@@ -402,10 +436,9 @@ def verify_env(spec: EnvSpec, *, paths: Paths = PATHS) -> None:
     if missing:
         raise EnvError(
             f"environment {spec.name!r} is incomplete: cannot import "
-            f"{', '.join(missing)}. The install did not finish, which on a "
-            f"shared filesystem usually means a dropped connection. Re-run "
-            f"`python -m vepbench install-env {spec.name}` to top it up, or add "
-            f"--force to rebuild from scratch."
+            f"{', '.join(missing)}. A package is recorded as installed but its "
+            f"files are missing, which is how an interrupted install on a shared "
+            f"filesystem usually ends up."
         )
 
 

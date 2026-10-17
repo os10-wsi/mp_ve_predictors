@@ -27,7 +27,7 @@ import pandas as pd
 
 import vepbench
 from vepbench.config import RunConfig, cache_key, write_json
-from vepbench.features import DEFAULT_FEATURES, build_features
+from vepbench.features import DEFAULT_FEATURES, build_features, inputs_for_features
 from vepbench.msa import MSAError, build_msa
 from vepbench.predictors import REGISTRY, resolve_names
 from vepbench.predictors.base import Predictor
@@ -118,6 +118,8 @@ def build_context(uniprot_id: str, config: RunConfig) -> ProteinContext:
         requirement for name in config.predictors if name in REGISTRY
         for requirement in REGISTRY[name].spec.requires
     }
+    # A requested feature is as good a reason to fetch an input as a predictor.
+    needed |= inputs_for_features(config.features or list(DEFAULT_FEATURES))
 
     structure = None
     if "structure" in needed or config.structure_override:

@@ -33,6 +33,26 @@ ALL_FEATURES = DEFAULT_FEATURES + (
     "entropy", "gaps", "depth", "contacts", "secondary_structure", "bilayer_depth",
 )
 
+# Which inputs each feature needs. The runner reads this so that asking for a
+# structural feature fetches a structure, even when no requested predictor
+# would have pulled one in on its own.
+FEATURE_REQUIREMENTS = {
+    "rsasa": "structure",
+    "plddt": "structure",
+    "depth": "structure",
+    "contacts": "structure",
+    "secondary_structure": "structure",
+    "bilayer_depth": "structure",
+    "entropy": "msa",
+    "gaps": "msa",
+}
+
+
+def inputs_for_features(requested: list[str] | None) -> set[str]:
+    """The set of inputs needed to compute the requested features."""
+    names = requested if requested is not None else list(DEFAULT_FEATURES)
+    return {FEATURE_REQUIREMENTS[f] for f in names if f in FEATURE_REQUIREMENTS}
+
 
 def _per_variant_physchem(frame: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(index=frame.index)

@@ -235,3 +235,38 @@ def test_default_msa_backend_is_colabfold():
     from vepbench.config import RunConfig
 
     assert RunConfig(predictors=[]).msa_backend == "colabfold"
+
+
+def test_requesting_a_structural_feature_fetches_a_structure(paths, alphafold_path):
+    """Asking for rSASA must load a structure even with a sequence-only predictor."""
+    from vepbench.config import RunConfig
+
+    config = RunConfig(predictors=["blosum62_baseline"], msa_backend="none",
+                       offline=True, paths=paths,
+                       features=["rsasa", "plddt", "physchem"])
+    result = run_protein(ACCESSION, config)
+    assert result.metadata["structure"] is not None
+    assert "rsasa" in result.wide_frame.columns
+    assert "plddt" in result.wide_frame.columns
+    assert result.wide_frame["rsasa"].notna().all()
+
+
+def test_requesting_a_conservation_feature_fetches_an_alignment(paths, structure_path,
+                                                                alignment):
+    from vepbench.config import RunConfig
+
+    config = RunConfig(predictors=["blosum62_baseline"], msa_backend="none",
+                       offline=True, paths=paths, structure_override=structure_path,
+                       msa_override=alignment, features=["entropy", "physchem"])
+    result = run_protein(ACCESSION, config)
+    assert result.metadata["msa"] is not None
+    assert result.wide_frame["msa_entropy_bits"].notna().all()
+
+
+def test_feature_inputs_are_declared():
+    from vepbench.features import ALL_FEATURES, inputs_for_features
+
+    assert inputs_for_features(["rsasa"]) == {"structure"}
+    assert inputs_for_features(["entropy", "gaps"]) == {"msa"}
+    assert inputs_for_features(["physchem", "blosum"]) == set()
+    assert inputs_for_features(list(ALL_FEATURES)) == {"structure", "msa"}

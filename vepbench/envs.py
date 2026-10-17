@@ -21,6 +21,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from vepbench import VEPBENCH
 from vepbench.config import PATHS, Paths
 
 log = logging.getLogger(__name__)
@@ -380,7 +381,7 @@ def create_env(
             raise EnvError(
                 f"{exc}\n\nReinstalling did not fix it, so the environment is "
                 f"damaged rather than merely incomplete. Rebuild it from scratch:\n"
-                f"  python -m vepbench install-env {spec.name} --force"
+                f"  {VEPBENCH} install-env {spec.name} --force"
             ) from exc
 
     marker = spec.marker(paths)
@@ -484,7 +485,7 @@ def run_in_env(
         if not allow_host_python:
             raise EnvError(
                 f"environment {spec.name!r} is not installed. Run "
-                f"`python -m vepbench install-env {spec.name}`."
+                f"`{VEPBENCH} install-env {spec.name}`."
             )
         interpreter = Path(sys.executable)
 

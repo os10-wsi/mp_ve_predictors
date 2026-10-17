@@ -55,7 +55,7 @@ echo "  sequences: $COUNT"
 echo "  size:      $(du -h "$TARGET" | cut -f1)"
 echo
 echo "Use it with:"
-echo "  python -m vepbench run --uniprot P26678 --predictors msa_based \\"
+echo "  python3 -m vepbench run --uniprot P26678 --predictors msa_based \\"
 echo "    --msa-backend jackhmmer"
 echo
 echo "It is found automatically at this path. To keep it elsewhere, set"

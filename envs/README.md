@@ -25,10 +25,10 @@ bioconda; uv warns that it cannot and names them. That covers `reduce`,
 and `hmmer` for the local alignment backend.
 
 ```
-python -m vepbench install-env esm            # one environment
-python -m vepbench install-env all            # everything (slow, large)
-python -m vepbench install-env all --dry-run  # just print what each one is
-python -m vepbench status                     # which are installed
+python3 -m vepbench install-env esm            # one environment
+python3 -m vepbench install-env all            # everything (slow, large)
+python3 -m vepbench install-env all --dry-run  # just print what each one is
+python3 -m vepbench status                     # which are installed
 ```
 
 Each directory holds `requirements.txt` with pinned dependencies, optionally

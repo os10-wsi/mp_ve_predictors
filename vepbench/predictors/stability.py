@@ -68,7 +68,7 @@ register(SubprocessPredictor(
         notes="Trained on Tsuboyama et al. 2023, so any benchmark overlapping that "
               "dataset is leaked. Built on ProteinMPNN features, hence the shared "
               "environment. Scores a whole saturation scan in one pass.",
-        install_hint="python -m vepbench install-env proteinmpnn",
+        install_hint="python3 -m vepbench install-env proteinmpnn",
     ),
     runner_name="thermompnn.py",
 ))
@@ -114,7 +114,7 @@ register(SubprocessPredictor(
               "server and are rate limited. A saturation scan submits many jobs; the "
               "runner throttles and caches per variant. Set DDMUT_ENDPOINT for a local "
               "deployment.",
-        install_hint="python -m vepbench install-env ddmut",
+        install_hint="python3 -m vepbench install-env ddmut",
     ),
     runner_name="ddmut.py", options={"rate_limit_seconds": 2.0},
 ))
@@ -132,7 +132,7 @@ register(SubprocessPredictor(
         notes="Trained to reproduce Rosetta cartesian_ddg, so it inherits Rosetta's "
               "sign convention and its soluble-protein bias. Fast enough for "
               "saturation scans, which is its advantage over FoldX and Rosetta.",
-        install_hint="python -m vepbench install-env rasp",
+        install_hint="python3 -m vepbench install-env rasp",
     ),
     runner_name="rasp.py",
 ))

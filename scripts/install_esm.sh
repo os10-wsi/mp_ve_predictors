@@ -5,7 +5,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 echo "=== ESM family ==="
 
 echo "Install the environment first:"
-echo "  python -m vepbench install-env esm"
+echo "  python3 -m vepbench install-env esm"
 echo
 echo "ESM-1v and ESM-2 weights come from Hugging Face on first use. ESM-IF1 is"
 echo "the one model still distributed only through fair-esm, so it downloads"

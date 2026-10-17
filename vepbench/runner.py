@@ -26,6 +26,7 @@ from pathlib import Path
 import pandas as pd
 
 import vepbench
+from vepbench import VEPBENCH
 from vepbench.config import RunConfig, cache_key, write_json
 from vepbench.features import DEFAULT_FEATURES, build_features, inputs_for_features
 from vepbench.msa import MSAError, build_msa
@@ -277,7 +278,7 @@ def run_protein(uniprot_id: str, config: RunConfig) -> RunResult:
     names = resolve_names(config.predictors)
     unknown = [n for n in names if n not in REGISTRY]
     if unknown:
-        raise ValueError(f"unknown predictors: {unknown}. Try `python -m vepbench list`.")
+        raise ValueError(f"unknown predictors: {unknown}. Try `{VEPBENCH} list`.")
     config.predictors = names
 
     protein = build_context(uniprot_id, config)

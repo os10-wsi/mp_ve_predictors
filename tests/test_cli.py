@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -294,3 +295,44 @@ def test_setup_py_shim_exists_and_adds_no_configuration():
     assert "setup()" in shim.read_text()
     assert "name=" not in shim.read_text(), "configuration belongs in pyproject.toml"
     assert len(body) < 25
+
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def shipped_shell_scripts() -> list[Path]:
+    """Every script a user is told to run, excluding built environments."""
+    return sorted(
+        path for pattern in ("scripts/*.sh", "scripts/runners/*.sh",
+                             "examples/*.sh", "envs/*/install.sh")
+        for path in REPO.glob(pattern)
+    )
+
+
+def test_there_are_scripts_to_check():
+    assert len(shipped_shell_scripts()) > 5
+
+
+@pytest.mark.parametrize("script", shipped_shell_scripts(), ids=lambda p: p.name)
+def test_no_script_assumes_a_bare_python_exists(script):
+    """`python` is absent on many Linux systems; `python3` or $PYTHON is not.
+
+    This is a real failure mode rather than a style rule: run_demo.sh died
+    with `python: command not found` on a cluster that had only python3.
+    """
+    offenders = [
+        f"{script.name}:{number}: {line.strip()}"
+        for number, line in enumerate(script.read_text().splitlines(), start=1)
+        # `python` being invoked: followed by a flag, a script or a heredoc.
+        # A bare mention in a candidate list guarded by `command -v` is fine.
+        if re.search(r"""(?<![\w$/.-])python(?=\s+[-\w./"'$])""", line)
+        and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, "use python3, \"$PYTHON\" or an env interpreter:\n" + \
+        "\n".join(offenders)
+
+
+def test_the_demo_resolves_an_interpreter_before_using_one():
+    demo = (REPO / "examples" / "run_demo.sh").read_text()
+    assert "find_python" in demo
+    assert "VEPBENCH_PYTHON" in demo, "allow pointing the demo at a chosen interpreter"

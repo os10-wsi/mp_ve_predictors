@@ -31,7 +31,7 @@ register(SubprocessPredictor(
         notes="A VAE is trained from scratch on this protein's alignment, so the cost "
               "is GPU hours per protein rather than per variant. Unreliable on a "
               "shallow alignment; the pipeline warns below Neff 100.",
-        install_hint="python -m vepbench install-env eve",
+        install_hint="python3 -m vepbench install-env eve",
     ),
     runner_name="eve.py", options={"use_domain": False},
 ))
@@ -46,7 +46,7 @@ register(SubprocessPredictor(
         approximate_vram_gb=8.0, env="eve", model_version="EVE VAE, trained per domain",
         notes="The domain-level variant EVE was published with. The alignment is "
               "trimmed to the domain window before training, which usually deepens it.",
-        install_hint="python -m vepbench install-env eve",
+        install_hint="python3 -m vepbench install-env eve",
     ),
     runner_name="eve.py", options={"use_domain": True},
 ))
@@ -66,7 +66,7 @@ register(SubprocessPredictor(
         model_version="popEVE (ESM-1v + EVE Gaussian process)",
         notes="Proteome-wide precomputed scores exist for human proteins and are used "
               "when available. A local run needs both EVE and ESM-1v scores first.",
-        install_hint="python -m vepbench install-env eve",
+        install_hint="python3 -m vepbench install-env eve",
     ),
     runner_name="popeve.py", options={"use_precomputed": True},
 ))
@@ -83,7 +83,7 @@ register(SubprocessPredictor(
         notes="Run with inference-time retrieval from the alignment, the configuration "
               "the paper benchmarks. Without retrieval it degrades to the "
               "autoregressive model alone.",
-        install_hint="python -m vepbench install-env tranception",
+        install_hint="python3 -m vepbench install-env tranception",
     ),
     runner_name="tranception.py", options={"retrieval": True},
 ))
@@ -99,7 +99,7 @@ register(SubprocessPredictor(
         approximate_vram_gb=8.0, env="tranception", model_version="TranceptEVE_L",
         notes="Needs EVE trained for the same protein first: it mixes the EVE family "
               "model with Tranception's autoregressive scores.",
-        install_hint="python -m vepbench install-env tranception, after install-env eve",
+        install_hint="python3 -m vepbench install-env tranception, after install-env eve",
     ),
     runner_name="trancepteve.py",
 ))
@@ -121,7 +121,7 @@ register(SubprocessPredictor(
         model_version="GEMME 1.1 with JET2",
         notes="Needs Java. Fast, no per-protein training, and one of the stronger "
               "alignment-only methods on ProteinGym.",
-        install_hint="python -m vepbench install-env gemme",
+        install_hint="python3 -m vepbench install-env gemme",
     ),
     runner_name="gemme.py",
 ))
@@ -142,7 +142,7 @@ register(SubprocessPredictor(
         model_version="plmc asymmetric, lambda_J scaled by (N-1)",
         notes="Classic baseline. Fits a pairwise undirected graphical model with plmc "
               "and needs a deep alignment to fit couplings reliably.",
-        install_hint="python -m vepbench install-env evcouplings",
+        install_hint="python3 -m vepbench install-env evcouplings",
     ),
     runner_name="evmutation.py",
 ))
@@ -185,7 +185,7 @@ register(SubprocessPredictor(
         model_version="VESPA (ProtT5 embeddings + conservation)", supervised=True,
         notes="Supervised on variant-effect data. VESPA-light is the faster variant, "
               "selected with the light option.",
-        install_hint="python -m vepbench install-env vespa",
+        install_hint="python3 -m vepbench install-env vespa",
     ),
     runner_name="vespa.py", options={"light": False},
 ))

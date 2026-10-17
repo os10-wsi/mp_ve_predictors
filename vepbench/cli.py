@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from vepbench import VEPBENCH
 from vepbench.config import PATHS, RunConfig
 from vepbench.features import ALL_FEATURES, DEFAULT_FEATURES
 
@@ -229,7 +230,7 @@ def command_merge(args: argparse.Namespace) -> int:
                  else PATHS.output_dir(args.uniprot) / "predictions_wide.csv")
     if not wide_path.exists():
         raise SystemExit(
-            f"no predictions at {wide_path}. Run `python -m vepbench run --uniprot "
+            f"no predictions at {wide_path}. Run `{VEPBENCH} run --uniprot "
             f"{args.uniprot}` first, or pass --predictions."
         )
     wide = pd.read_csv(wide_path)
@@ -317,10 +318,10 @@ def command_status(args: argparse.Namespace) -> int:
         print(f"{name:16s} {explanation[state]:44s} "
               f"{', '.join(members) if members else '-'}")
     if needs_attention:
-        print(f"\nRe-run: python -m vepbench install-env "
+        print(f"\nRe-run: {VEPBENCH} install-env "
               f"{' '.join(needs_attention) if len(needs_attention) == 1 else '<name>'}")
         for name in needs_attention:
-            print(f"  python -m vepbench install-env {name}")
+            print(f"  {VEPBENCH} install-env {name}")
     return 0
 
 

@@ -19,22 +19,22 @@ in, from a fresh clone to merged predictions.
 ```bash
 pip install -e .
 
-python -m vepbench list            # what exists
-python -m vepbench status          # which environments are installed
+python3 -m vepbench list            # what exists
+python3 -m vepbench status          # which environments are installed
 
-python -m vepbench install-env esm # one environment (see envs/README.md)
+python3 -m vepbench install-env esm # one environment (see envs/README.md)
 
-python -m vepbench doctor          # is everything installed and downloaded?
+python3 -m vepbench doctor          # is everything installed and downloaded?
 
 # one protein, one predictor
-python -m vepbench run --uniprot P26678 --predictors esm2_650m
+python3 -m vepbench run --uniprot P26678 --predictors esm2_650m
 
 # a subset, or everything
-python -m vepbench run --uniprot P26678 --predictors esm1v_full saprot foldx
-python -m vepbench run --uniprot P26678 --predictors all
+python3 -m vepbench run --uniprot P26678 --predictors esm1v_full saprot foldx
+python3 -m vepbench run --uniprot P26678 --predictors all
 
 # many proteins
-python -m vepbench run --uniprot-list ids.txt --predictors all
+python3 -m vepbench run --uniprot-list ids.txt --predictors all
 ```
 
 The orchestrator needs only numpy, pandas and requests. Predictors live in
@@ -111,11 +111,11 @@ columns, then the feature columns.
 ## Merging with a DMS table
 
 ```bash
-python -m vepbench merge --dms my_dms.csv --uniprot P26678 \
+python3 -m vepbench merge --dms my_dms.csv --uniprot P26678 \
     --variant-col variant --out merged.csv
 
 # or with separate columns, three-letter codes accepted
-python -m vepbench merge --dms my_dms.csv --uniprot P26678 \
+python3 -m vepbench merge --dms my_dms.csv --uniprot P26678 \
     --position-col pos --wt-col wt --mut-col mut --out merged.csv
 ```
 
@@ -139,7 +139,7 @@ A `match_detail` column explains each failure, the unmatched rows go to
 ## Benchmarking
 
 ```bash
-python -m vepbench benchmark --merged merged.csv --score-col abundance \
+python3 -m vepbench benchmark --merged merged.csv --score-col abundance \
     --group-col uniprot_id --plot summary.png
 ```
 
@@ -208,7 +208,7 @@ disk:
 ```bash
 export VEPBENCH_DATABASES=/scratch/db          # where setup_uniref90.sh writes
 export VEPBENCH_MSA_DATABASE=/scratch/db/uniref90.fasta   # or name the file
-python -m vepbench run --uniprot P26678 --predictors msa_based \
+python3 -m vepbench run --uniprot P26678 --predictors msa_based \
     --msa-backend jackhmmer
 ```
 
@@ -276,7 +276,7 @@ silently inverts a benchmark. Every predictor records its direction and where
 that direction was read from:
 
 ```bash
-python -m vepbench check-conventions
+python3 -m vepbench check-conventions
 ```
 
 Five currently have unconfirmed directions: `thermompnn`, `ddmut`,
@@ -292,10 +292,10 @@ its own environment under `envs/<name>/.venv`, driven over subprocess with a
 JSON job file.
 
 ```bash
-python -m vepbench install-env esm
-python -m vepbench install-env esm --backend conda   # or mamba, micromamba
-python -m vepbench install-env all --dry-run         # see what each one is first
-python -m vepbench status
+python3 -m vepbench install-env esm
+python3 -m vepbench install-env esm --backend conda   # or mamba, micromamba
+python3 -m vepbench install-env all --dry-run         # see what each one is first
+python3 -m vepbench status
 ```
 
 uv and conda both work and both produce an environment at the same path. uv

@@ -7,10 +7,13 @@ direction: no false "ready", and no advice that would destroy weights.
 
 from __future__ import annotations
 
+import shlex
+import shutil
 from pathlib import Path
 
 import pytest
 
+from vepbench import VEPBENCH
 from vepbench.readiness import (
     MISSING,
     OK,
@@ -78,7 +81,14 @@ def test_environments_are_scoped_to_the_request():
 def test_absent_environment_is_reported_with_its_fix(paths):
     (check,) = check_environments(["esm2_650m"], paths)
     assert check.status == MISSING
-    assert check.fix == "python -m vepbench install-env esm"
+    assert check.fix == f"{VEPBENCH} install-env esm"
+
+
+def test_suggested_commands_name_a_real_interpreter(paths):
+    """Plain `python` does not exist on many systems; the advice must run."""
+    (check,) = check_environments(["esm2_650m"], paths)
+    assert check.fix.startswith(VEPBENCH)
+    assert shutil.which(shlex.split(check.fix)[0])
 
 
 def test_weights_check_follows_the_cache(paths):

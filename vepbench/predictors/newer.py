@@ -52,7 +52,7 @@ register(SubprocessPredictor(
         notes="Combines a protein language model with residue-graph and "
               "molecular-surface encoders. The S3F-MSA variant also consumes an "
               "alignment; select it with the use_msa option.",
-        install_hint="python -m vepbench install-env s3f",
+        install_hint="python3 -m vepbench install-env s3f",
     ),
     runner_name="s3f.py", options={"use_msa": False},
 ))
@@ -72,7 +72,7 @@ register(SubprocessPredictor(
         notes="Retrieval-enhanced: a structure-aware language model combined with "
               "alignment-derived residue preferences. Reported state of the art on 217 "
               "ProteinGym assays, so treat ProteinGym overlap as leakage.",
-        install_hint="python -m vepbench install-env venusrem",
+        install_hint="python3 -m vepbench install-env venusrem",
     ),
     runner_name="venusrem.py",
 ))
@@ -91,7 +91,7 @@ register(SubprocessPredictor(
         notes="Alignment-free multimodal model trained on sequence and structure from "
               "roughly 160 million AlphaFold DB entries. Needs SE(3)-Transformer and "
               "DGL, the most fragile install here.",
-        install_hint="python -m vepbench install-env promep",
+        install_hint="python3 -m vepbench install-env promep",
     ),
     runner_name="promep.py",
 ))
@@ -117,7 +117,7 @@ register(SubprocessPredictor(
               "assay data, but it predicts biophysical attributes rather than fitness. "
               "Local models exist only for proteins the authors simulated, none of "
               "them a membrane protein.",
-        install_hint="python -m vepbench install-env metl",
+        install_hint="python3 -m vepbench install-env metl",
     ),
     runner_name="metl.py", options={"model": "metl-g-20m-3d"},
 ))
@@ -146,7 +146,7 @@ register(SubprocessPredictor(
               "overlapping benchmark data is leakage. This is the published "
               "implementation; see saprot_dg_masked_marginal for the likelihood "
               "alternative.",
-        install_hint="python -m vepbench install-env stability_dg",
+        install_hint="python3 -m vepbench install-env stability_dg",
     ),
     runner_name="stability_dg.py", options={"backbone": "saprot", "ensemble": 3},
 ))
@@ -170,7 +170,7 @@ register(SubprocessPredictor(
         trained_on_megascale=True, supervised=True,
         notes="Requires accepting the ESM3 licence on Hugging Face. See "
               "esm3_dg_masked_marginal for the likelihood alternative.",
-        install_hint="python -m vepbench install-env stability_dg, then export HF_TOKEN",
+        install_hint="python3 -m vepbench install-env stability_dg, then export HF_TOKEN",
     ),
     runner_name="stability_dg.py", options={"backbone": "esm3", "ensemble": 3},
 ))
@@ -195,7 +195,7 @@ register(SubprocessPredictor(
         notes="NOT a free-energy estimate and NOT the published SaProt-dG. This is the "
               "standard likelihood-ratio score, provided as the documented fallback. "
               "Units are log-likelihood, not kcal/mol.",
-        install_hint="python -m vepbench install-env huggingface",
+        install_hint="python3 -m vepbench install-env huggingface",
     ),
     runner_name="saprot.py", options={"model": "westlake-repl/SaProt_650M_AF2"},
 ))
@@ -218,7 +218,7 @@ register(SubprocessPredictor(
         notes="NOT a free-energy estimate. Same caveat as "
               "saprot_dg_masked_marginal; here the structure track is used as "
               "conditioning, which is what distinguishes it from esm3_open.",
-        install_hint="python -m vepbench install-env esm, then export HF_TOKEN",
+        install_hint="python3 -m vepbench install-env esm, then export HF_TOKEN",
     ),
     runner_name="esm3_masked_marginals.py",
     options={"model": "esm3-sm-open-v1", "structure_conditioned": True},

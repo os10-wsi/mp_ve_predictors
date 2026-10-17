@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from vepbench import VEPBENCH, with_interpreter
 from vepbench.config import PATHS, Paths
 from vepbench.envs import EnvSpec, get_env, run_in_env
 from vepbench.protein import ProteinContext
@@ -113,18 +114,20 @@ class Predictor(ABC):
                 return Availability(False, f"requires {requirement}, which was not provided")
         env = self.env_spec()
         if env is not None and not env.is_installed(paths):
-            hint = self.spec.install_hint or f"python -m vepbench install-env {env.name}"
+            hint = with_interpreter(
+                self.spec.install_hint or f"python3 -m vepbench install-env {env.name}"
+            )
             state = env.state(paths)
             if state == "incomplete":
                 return Availability(False, (
                     f"environment {env.name!r} exists but its install did not finish, "
                     f"so some dependencies are missing. Re-run "
-                    f"`python -m vepbench install-env {env.name}`."
+                    f"`{VEPBENCH} install-env {env.name}`."
                 ))
             if state == "stale":
                 return Availability(False, (
                     f"environment {env.name!r} was built from different requirements. "
-                    f"Re-run `python -m vepbench install-env {env.name}`."
+                    f"Re-run `{VEPBENCH} install-env {env.name}`."
                 ))
             return Availability(False, f"environment {env.name!r} is not installed ({hint})")
         return self._extra_availability(protein, paths=paths)
@@ -260,7 +263,7 @@ def register(predictor: Predictor) -> Predictor:
 
 def get_predictor(name: str) -> Predictor:
     if name not in REGISTRY:
-        raise PredictorError(f"unknown predictor {name!r}; try `python -m vepbench list`")
+        raise PredictorError(f"unknown predictor {name!r}; try `{VEPBENCH} list`")
     return REGISTRY[name]
 
 

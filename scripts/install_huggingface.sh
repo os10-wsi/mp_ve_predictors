@@ -5,7 +5,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 echo "=== Hugging Face language models ==="
 
 echo "Install the environment first:"
-echo "  python -m vepbench install-env huggingface"
+echo "  python3 -m vepbench install-env huggingface"
 echo
 echo "Weights download on first use into HF_HOME (default ~/.cache/huggingface):"
 echo "  SaProt_650M_AF2      2.6 GB"

@@ -12,6 +12,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from vepbench import VEPBENCH
 from vepbench.config import PATHS, Paths
 from vepbench.envs import ENVIRONMENTS, resolve_backend
 from vepbench.msa import DEFAULT_LOCAL_DATABASES, resolve_database
@@ -122,7 +123,7 @@ def check_environments(names: list[str], paths: Paths = PATHS) -> list[Check]:
             detail={"ok": "ready", "missing": "not installed",
                     "incomplete": "install did not finish",
                     "stale": "requirements changed since it was built"}[state],
-            fix="" if state == "ok" else f"python -m vepbench install-env {name}",
+            fix="" if state == "ok" else f"{VEPBENCH} install-env {name}",
         ))
     return checks
 
@@ -296,7 +297,7 @@ def assess(
         # A typo here would otherwise surface as a KeyError, which is a poor
         # answer from the command whose job is catching mistakes early.
         raise ValueError(
-            f"unknown predictors: {unknown}. Try `python -m vepbench list`."
+            f"unknown predictors: {unknown}. Try `{VEPBENCH} list`."
         )
     result = Readiness()
 

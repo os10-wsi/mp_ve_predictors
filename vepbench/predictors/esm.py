@@ -36,7 +36,7 @@ register(SubprocessPredictor(
               "position scored in the window where it is most central, and the window "
               "used is written to the per-member CSV. Replicates are loaded one at a "
               "time, so peak memory is one 650M model, not five.",
-        install_hint="python -m vepbench install-env esm",
+        install_hint="python3 -m vepbench install-env esm",
     ),
     runner_name="esm_masked_marginals.py",
     options={"models": ESM1V_MODELS},
@@ -54,7 +54,7 @@ register(SubprocessPredictor(
         notes="Scores only the chosen domain window, with the model seeing the domain "
               "sequence alone. For a membrane protein the window defaults to the span "
               "of the UniProt transmembrane segments; override with --domain.",
-        install_hint="python -m vepbench install-env esm",
+        install_hint="python3 -m vepbench install-env esm",
     ),
     runner_name="esm_masked_marginals.py",
     options={"models": ESM1V_MODELS, "use_domain": True},
@@ -70,7 +70,7 @@ register(SubprocessPredictor(
         requires=frozenset({"sequence"}), gpu_recommended=True,
         approximate_vram_gb=3.0, env="esm", model_version="facebook/esm2_t33_650M_UR50D",
         notes="Likelihood-ratio baseline; the same 1022-residue tiling applies.",
-        install_hint="python -m vepbench install-env esm",
+        install_hint="python3 -m vepbench install-env esm",
     ),
     runner_name="esm_masked_marginals.py",
     options={"models": ["facebook/esm2_t33_650M_UR50D"]},
@@ -87,7 +87,7 @@ register(SubprocessPredictor(
         notes="Needs roughly 13 GB of VRAM in float32 and about 7 GB in float16. Pass "
               "--dtype float16 on a smaller card, or --device cpu to trade speed for "
               "memory.",
-        install_hint="python -m vepbench install-env esm",
+        install_hint="python3 -m vepbench install-env esm",
     ),
     runner_name="esm_masked_marginals.py",
     options={"models": ["facebook/esm2_t36_3B_UR50D"]},
@@ -105,7 +105,7 @@ register(SubprocessPredictor(
         approximate_vram_gb=3.0, env="esm", model_version="esmc_600m",
         notes="Likelihood-ratio score from the ESM Cambrian encoder. Gated on Hugging "
               "Face, so HF_TOKEN must be set.",
-        install_hint="python -m vepbench install-env esm, then export HF_TOKEN",
+        install_hint="python3 -m vepbench install-env esm, then export HF_TOKEN",
     ),
     runner_name="esmc_masked_marginals.py",
     options={"model": "esmc_600m"},

@@ -27,7 +27,7 @@ register(SubprocessPredictor(
         notes="Each token pairs a residue with its Foldseek 3Di structural letter, so "
               "a structure is mandatory and foldseek must be on PATH. The 3Di alphabet "
               "was derived from soluble-protein structures.",
-        install_hint="python -m vepbench install-env huggingface && "
+        install_hint="python3 -m vepbench install-env huggingface && "
                      "bash scripts/install_foldseek.sh",
     ),
     runner_name="saprot.py",
@@ -44,7 +44,7 @@ register(SubprocessPredictor(
         approximate_vram_gb=6.0, env="huggingface", model_version="SaProt_1.3B_AF2",
         notes="The larger SaProt. Same scoring and the same foldseek requirement; "
               "enable it when you have the VRAM.",
-        install_hint="python -m vepbench install-env huggingface && "
+        install_hint="python3 -m vepbench install-env huggingface && "
                      "bash scripts/install_foldseek.sh",
     ),
     runner_name="saprot.py",
@@ -62,7 +62,7 @@ register(SubprocessPredictor(
         approximate_vram_gb=2.0, env="huggingface", model_version="AI4Protein/ProSST-2048",
         notes="Quantises local structure into a discrete vocabulary, then scores with "
               "disentangled attention over sequence and structure tokens.",
-        install_hint="python -m vepbench install-env huggingface",
+        install_hint="python3 -m vepbench install-env huggingface",
     ),
     runner_name="prosst.py",
     options={"model": "AI4Protein/ProSST-2048"},
@@ -83,7 +83,7 @@ register(SubprocessPredictor(
               "likelihood at a sentinel token stands in for a masked-LM head. That is "
               "a baseline of this repository's choosing, not a scheme the ProtT5 "
               "authors proposed for variant effects.",
-        install_hint="python -m vepbench install-env huggingface",
+        install_hint="python3 -m vepbench install-env huggingface",
     ),
     runner_name="t5_reconstruction.py",
     options={"model": "Rostlab/prot_t5_xl_uniref50"},
@@ -100,7 +100,7 @@ register(SubprocessPredictor(
         approximate_vram_gb=5.0, env="huggingface", model_version="ElnaggarLab/ankh-large",
         notes="Same caveat as ProtT5: a denoising reconstruction likelihood used as a "
               "baseline rather than an authored variant-effect score.",
-        install_hint="python -m vepbench install-env huggingface",
+        install_hint="python3 -m vepbench install-env huggingface",
     ),
     runner_name="t5_reconstruction.py",
     options={"model": "ElnaggarLab/ankh-large"},

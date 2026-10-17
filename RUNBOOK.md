@@ -34,7 +34,7 @@ changes. uv is used when present because it is much faster. On a cluster where
 your compiled dependencies already come from conda, prefer conda:
 
 ```bash
-python -m vepbench install-env esm --backend conda     # or mamba, micromamba
+python3 -m vepbench install-env esm --backend conda     # or mamba, micromamba
 export VEPBENCH_ENV_BACKEND=conda                      # to make it the default
 ```
 
@@ -142,11 +142,11 @@ Every install step above can half-succeed. Before committing a batch to a
 queue, ask what is actually in place:
 
 ```bash
-python -m vepbench doctor                                   # everything
-python -m vepbench doctor --predictors esm2_650m saprot     # just these
-python -m vepbench doctor --predictors esm2_650m -v         # also list what passes
-python -m vepbench doctor --msa-backend jackhmmer           # include the local backend
-python -m vepbench doctor --features secondary_structure    # include what features need
+python3 -m vepbench doctor                                   # everything
+python3 -m vepbench doctor --predictors esm2_650m saprot     # just these
+python3 -m vepbench doctor --predictors esm2_650m -v         # also list what passes
+python3 -m vepbench doctor --msa-backend jackhmmer           # include the local backend
+python3 -m vepbench doctor --features secondary_structure    # include what features need
 ```
 
 It checks the environment backend, each environment the request needs, the
@@ -168,7 +168,7 @@ Exit status is 0 when nothing is missing, 1 when something is, 2 for a
 mistyped predictor name — so it can gate a submission script:
 
 ```bash
-python -m vepbench doctor --predictors esm2_650m gemme || exit 1
+python3 -m vepbench doctor --predictors esm2_650m gemme || exit 1
 ```
 
 Warnings do not fail it. The common one is weights left in the old
@@ -180,7 +180,7 @@ often the only copy.
 ## 4. First real predictor
 
 ```bash
-python -m vepbench install-env esm     # ~3 GB; add --backend conda if you prefer
+python3 -m vepbench install-env esm     # ~3 GB; add --backend conda if you prefer
 vepbench run --uniprot P26678 --predictors esm2_650m --msa-backend none
 ```
 
@@ -200,20 +200,20 @@ Work outward in order of how likely each is to need attention.
 
 ```bash
 # Language models: same verified runner, different checkpoints
-python -m vepbench install-env huggingface    # SaProt, ProSST, ProtT5, Ankh
+python3 -m vepbench install-env huggingface    # SaProt, ProSST, ProtT5, Ankh
 bash scripts/install_foldseek.sh              # skip this if you used conda
 
 # Structure-based
-python -m vepbench install-env proteinmpnn    # ProteinMPNN, ThermoMPNN
-python -m vepbench install-env esm_if1        # separate: needs torch-scatter
+python3 -m vepbench install-env proteinmpnn    # ProteinMPNN, ThermoMPNN
+python3 -m vepbench install-env esm_if1        # separate: needs torch-scatter
 
 # Alignment-based
-python -m vepbench install-env gemme          # needs Java
-python -m vepbench install-env evcouplings    # builds plmc
-python -m vepbench install-env eve            # GPU hours per protein
+python3 -m vepbench install-env gemme          # needs Java
+python3 -m vepbench install-env evcouplings    # builds plmc
+python3 -m vepbench install-env eve            # GPU hours per protein
 ```
 
-`python -m vepbench install-env all --dry-run` prints what each one is
+`python3 -m vepbench install-env all --dry-run` prints what each one is
 without installing. `vepbench status` shows what is installed.
 
 ## 6. A real run
@@ -349,15 +349,15 @@ Most failures are install-time rather than run-time, so start with the
 pre-flight check (section 3c), which names the fix for each:
 
 ```bash
-python -m vepbench doctor --predictors <the ones you asked for>
+python3 -m vepbench doctor --predictors <the ones you asked for>
 ```
 
 | symptom | fix |
 |---|---|
 | `OSError: [Errno 28] No space left on device` | the cache is on a small filesystem; see below |
 | `build backend is missing the 'build_editable' hook` | old pip or setuptools; see below |
-| `environment 'x' is not installed` | `python -m vepbench install-env x` |
-| `install did not finish` / `No module named 'filelock'` | `python -m vepbench install-env x` tops it up |
+| `environment 'x' is not installed` | `python3 -m vepbench install-env x` |
+| `install did not finish` / `No module named 'filelock'` | `python3 -m vepbench install-env x` tops it up |
 | ESM-IF1 wants torch-scatter | `bash envs/esm_if1/install.sh`, needs `data.pyg.org` |
 | SaProt cannot find foldseek | `bash scripts/install_foldseek.sh`, then add it to PATH |
 | gated model 401 | `export HF_TOKEN=...` and accept the licence on the model page |

@@ -75,7 +75,7 @@ register(EsmIf1Predictor(
               "Weights are CC-BY-NC, so commercial use is restricted. It lives in its "
               "own environment because torch-scatter and torch-sparse, which it "
               "requires, publish wheels only for older torch releases.",
-        install_hint="python -m vepbench install-env esm_if1",
+        install_hint="python3 -m vepbench install-env esm_if1",
     ),
     runner_name="esm_if1.py",
     options={"scoring": "conditional"},
@@ -94,7 +94,7 @@ register(SubprocessPredictor(
               "orders, the inverse-folding analogue of a masked marginal. Small enough "
               "to run comfortably on CPU. A soluble-weights variant is available "
               "through the use_soluble_weights option.",
-        install_hint="python -m vepbench install-env proteinmpnn",
+        install_hint="python3 -m vepbench install-env proteinmpnn",
     ),
     runner_name="proteinmpnn.py",
     options={"model_name": "v_48_020", "use_soluble_weights": False},

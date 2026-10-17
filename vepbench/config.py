@@ -42,6 +42,15 @@ class Paths:
         return self.cache / "annotations"
 
     @property
+    def databases(self) -> Path:
+        """Large sequence databases for the local MSA backends.
+
+        These are tens to hundreds of gigabytes. They live on the filesystem
+        and are gitignored; they must never be committed.
+        """
+        return Path(os.environ.get("VEPBENCH_DATABASES", self.data / "databases"))
+
+    @property
     def weights(self) -> Path:
         return Path(os.environ.get("VEPBENCH_WEIGHTS", self.data / "weights"))
 
@@ -80,7 +89,7 @@ class RunConfig:
     msa_override: Path | None = None
     domain: tuple[int, int] | None = None
     features: list[str] = field(default_factory=list)
-    msa_backend: str = "ebi"
+    msa_backend: str = "colabfold"
     msa_database: str | None = None
     offline: bool = False
     device: str | None = None

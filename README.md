@@ -164,22 +164,52 @@ network, which is how the test suite runs.
 
 Nine of the predictors need an MSA. Four backends:
 
-- **`ebi`** (default) submits PSI-BLAST or BLAST to the EBI Job Dispatcher and
-  converts the hits into a query-anchored A3M. No local database, nothing to
-  install. Jobs are queued server-side and take minutes, and alignments are
-  shallower than a profile HMM search. EBI requires a contact address, so pass
-  `--email` or set `VEPBENCH_EMAIL`.
-- **`colabfold`** uses the public MMseqs2 server against UniRef30 plus
-  environmental databases. The deepest alignments for the least effort, if
-  `api.colabfold.com` is reachable.
-- **`jackhmmer`** and **`hhblits`** search a database you supply with
-  `--msa-database`. The most sensitive route. UniRef90 is roughly 60 GB and
-  UniRef30 roughly 90 GB, so neither is downloaded for you.
+- **`colabfold`** (default) uses the public MMseqs2 server against UniRef30
+  plus environmental databases. The deepest alignments for the least effort
+  and no local database. On phospholamban it returned 105 sequences at
+  Neff 10.2 in 14 seconds. It is a shared community server, so for a large
+  batch prefer a local backend.
+- **`ebi`** submits PSI-BLAST or BLAST to the EBI Job Dispatcher. No local
+  database either, but jobs queue server-side for minutes and the alignments
+  are shallower: the same protein gave Neff 1.75. EBI requires a contact
+  address, so pass `--email` or set `VEPBENCH_EMAIL`.
+- **`jackhmmer`** and **`hhblits`** search a database you supply. The most
+  sensitive route, and the one EVE and EVcouplings were built around. See
+  [Local sequence databases](#local-sequence-databases).
 - **`none`** skips the alignment, and MSA-dependent predictors report why.
 
 Neff and coverage are computed for every alignment. Below Neff 100, or 50
 sequences, the run warns that EVE, GEMME, EVmutation and DeepSequence are
-unreliable, and records the warning in `metadata.json`.
+unreliable, and records the warning in `metadata.json`. Short, highly
+conserved proteins trip this legitimately: phospholamban's homologues are
+about 72% identical to each other, so no backend reaches a usable depth for
+it, and the evolutionary models should simply not be trusted on that protein.
+
+### Local sequence databases
+
+UniRef90 for jackhmmer is roughly **65 GB compressed and 180 GB unpacked**, and
+UniRef30 for HHblits about 90 GB. These live on the filesystem, never in the
+repository. GitHub rejects any file over 100 MB, and Git LFS caps at 2 GB per
+file, so a database of this size cannot be committed under any configuration.
+
+```bash
+bash scripts/setup_uniref90.sh          # downloads, unpacks, reports the size
+```
+
+It lands in `data/databases/`, which `.gitignore` already excludes, and is
+found there automatically. To keep it elsewhere, for example on a fast scratch
+disk:
+
+```bash
+export VEPBENCH_DATABASES=/scratch/db          # where setup_uniref90.sh writes
+export VEPBENCH_MSA_DATABASE=/scratch/db/uniref90.fasta   # or name the file
+python -m vepbench run --uniprot P26678 --predictors msa_based \
+    --msa-backend jackhmmer
+```
+
+Put it on local disk rather than a network mount: jackhmmer streams the whole
+file on every search. You also need HMMER installed (`apt-get install hmmer`
+or `conda install -c bioconda hmmer`).
 
 ### Numbering
 
@@ -265,13 +295,19 @@ python -m vepbench status
 See [`envs/README.md`](envs/README.md) for sizes and hardware notes. FoldX is
 licensed and is not distributed here; set `FOLDX_BINARY` to your own copy.
 
-### Gated models
+### Gated models and credentials
 
 ESM3 and ESM C need the EvolutionaryScale licence accepted on Hugging Face and
 a token exported as `HF_TOKEN`. Create one at
 <https://huggingface.co/settings/tokens> (a read token is enough), accept the
 licence at <https://huggingface.co/EvolutionaryScale/esm3-sm-open-v1>, then
 `export HF_TOKEN=hf_...`.
+
+Keep every credential out of the repository. `HF_TOKEN`, `FOLDX_BINARY` and
+`DDMUT_ENDPOINT` are read from the environment precisely so that nothing has
+to be written into a tracked file. If a token is ever pasted somewhere it
+might be read, revoke it at the same settings page and issue a new one; tokens
+cannot be un-shared.
 
 ### A networking note
 

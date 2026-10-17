@@ -148,3 +148,59 @@ def test_record_dict_round_trips(alignment):
     payload = json.loads(json.dumps(describe_alignment(alignment, backend="t").as_dict()))
     assert payload["backend"] == "t"
     assert payload["n_effective"] > 0
+
+
+# --- where a local database is found -------------------------------------
+
+def test_explicit_database_wins(monkeypatch):
+    from vepbench.msa import resolve_database
+
+    monkeypatch.setenv("VEPBENCH_MSA_DATABASE", "/from/env.fasta")
+    assert resolve_database("jackhmmer", "/explicit.fasta") == "/explicit.fasta"
+
+
+def test_environment_variable_is_used_when_no_flag(monkeypatch):
+    from vepbench.msa import resolve_database
+
+    monkeypatch.setenv("VEPBENCH_MSA_DATABASE", "/from/env.fasta")
+    assert resolve_database("jackhmmer", None) == "/from/env.fasta"
+    assert resolve_database("hhblits", None) == "/from/env.fasta"
+
+
+def test_conventional_location_is_found(monkeypatch, tmp_path):
+    """A database left in data/databases/ needs no flag."""
+    import vepbench.msa as msa_module
+    from vepbench.config import Paths
+
+    monkeypatch.delenv("VEPBENCH_MSA_DATABASE", raising=False)
+    monkeypatch.setenv("VEPBENCH_DATA", str(tmp_path / "data"))
+    paths = Paths(root=tmp_path)
+    paths.databases.mkdir(parents=True, exist_ok=True)
+    (paths.databases / "uniref90.fasta").write_text(">a\nMK\n")
+    monkeypatch.setattr(msa_module, "PATHS", paths)
+    assert msa_module.resolve_database("jackhmmer", None) == str(
+        paths.databases / "uniref90.fasta"
+    )
+
+
+def test_no_database_for_the_remote_backends(monkeypatch):
+    from vepbench.msa import resolve_database
+
+    monkeypatch.setenv("VEPBENCH_MSA_DATABASE", "/from/env.fasta")
+    # a local database is meaningless for a server-side search
+    assert resolve_database("colabfold", None) is None
+    assert resolve_database("ebi", None) is None
+
+
+def test_jackhmmer_without_a_database_explains_the_setup(monkeypatch, tmp_path):
+    import vepbench.msa as msa_module
+    from vepbench.config import Paths
+    from vepbench.msa import MSAError, build_msa
+
+    monkeypatch.delenv("VEPBENCH_MSA_DATABASE", raising=False)
+    monkeypatch.setenv("VEPBENCH_DATA", str(tmp_path / "data"))
+    paths = Paths(root=tmp_path)
+    paths.ensure()
+    monkeypatch.setattr(msa_module, "PATHS", paths)
+    with pytest.raises(MSAError, match="setup_uniref90"):
+        build_msa("P1", "MKVLA", backend="jackhmmer", paths=paths)

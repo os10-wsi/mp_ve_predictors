@@ -60,5 +60,8 @@ Approximate, before model weights:
 Running every predictor pulls roughly 60 to 80 GB of weights in total.
 
 Nothing here downloads a large sequence database. The default MSA backend is
-EBI BLAST or PSI-BLAST, which needs none. `jackhmmer` and `hhblits` need a
-database you supply: UniRef90 is roughly 60 GB and UniRef30 roughly 90 GB.
+the ColabFold MMseqs2 server, which needs none, and the EBI backend needs none
+either. The local backends do: UniRef90 for jackhmmer is roughly 65 GB
+compressed and 180 GB unpacked, UniRef30 for HHblits about 90 GB. Fetch
+UniRef90 with `bash scripts/setup_uniref90.sh`. It goes in `data/databases/`,
+which is gitignored, and must never be committed.

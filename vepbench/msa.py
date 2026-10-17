@@ -28,6 +28,7 @@ Backends, in the order you would normally reach for them:
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -50,6 +51,13 @@ DEFAULT_TIMEOUT = 120
 # and we say so loudly rather than quietly producing numbers.
 LOW_NEFF_THRESHOLD = 100.0
 LOW_DEPTH_THRESHOLD = 50
+
+# Where a local database is looked for when none is named. These are large
+# downloads that live on the filesystem, never in the repository.
+DEFAULT_LOCAL_DATABASES = {
+    "jackhmmer": ("uniref90.fasta", "uniref100.fasta", "uniref90.fa"),
+    "hhblits": ("UniRef30", "UniRef30_2023_02", "uniclust30"),
+}
 
 
 class MSAError(RuntimeError):
@@ -387,14 +395,36 @@ def _run_ebi(
 # Other backends
 # --------------------------------------------------------------------------
 
+def resolve_database(backend: str, database: str | None) -> str | None:
+    """Work out which database a backend should search.
+
+    An explicit ``--msa-database`` wins. Otherwise the local backends fall back
+    to ``VEPBENCH_MSA_DATABASE``, then to the conventional location under
+    ``data/databases/``, so a one-time download does not have to be named on
+    every run.
+    """
+    if database:
+        return database
+    if backend in ("jackhmmer", "hhblits"):
+        from_env = os.environ.get("VEPBENCH_MSA_DATABASE")
+        if from_env:
+            return from_env
+        for candidate in DEFAULT_LOCAL_DATABASES.get(backend, ()):
+            path = PATHS.databases / candidate
+            if path.exists() or list(path.parent.glob(f"{path.name}*")):
+                return str(path)
+    return None
+
+
 def build_msa(
     uniprot_id: str, sequence: str, *, backend: str = "ebi", paths: Paths = PATHS,
     override: Path | None = None, force: bool = False, offline: bool = False,
     database: str | None = None, email: str = "", max_hits: int = 1000,
-    iterations: int = 3, expect: float = 1e-3, jackhmmer_db: Path | None = None,
-    hhblits_db: Path | None = None, jackhmmer_bitscore_per_residue: float = 0.5,
+    iterations: int = 3, expect: float = 1e-3,
+    jackhmmer_bitscore_per_residue: float = 0.5,
 ) -> MSARecord:
     """Obtain an alignment, from cache when possible."""
+    database = resolve_database(backend, database)
     if override is not None:
         path = Path(override)
         if not path.exists():
@@ -409,8 +439,7 @@ def build_msa(
 
     paths.msas.mkdir(parents=True, exist_ok=True)
     key = cache_key(uniprot_id, sequence, backend, database, max_hits, iterations,
-                    expect, str(jackhmmer_db), str(hhblits_db),
-                    jackhmmer_bitscore_per_residue)
+                    expect, jackhmmer_bitscore_per_residue)
     destination = paths.msas / f"{uniprot_id}.{backend}.{key}.a3m"
     if destination.exists() and (not force or offline):
         log.info("using cached MSA %s", destination.name)
@@ -437,10 +466,14 @@ def build_msa(
     elif backend == "colabfold":
         resolved = _run_colabfold(sequence, destination)
     elif backend == "jackhmmer":
-        resolved = _run_jackhmmer(sequence, destination, jackhmmer_db, iterations,
-                                  jackhmmer_bitscore_per_residue)
+        resolved = _run_jackhmmer(
+            sequence, destination, Path(database) if database else None,
+            iterations, jackhmmer_bitscore_per_residue,
+        )
     elif backend == "hhblits":
-        resolved = _run_hhblits(sequence, destination, hhblits_db)
+        resolved = _run_hhblits(
+            sequence, destination, Path(database) if database else None
+        )
     else:
         raise MSAError(f"unknown MSA backend {backend!r}")
     return describe_alignment(destination, backend=backend, database=resolved,
@@ -522,8 +555,12 @@ def _run_jackhmmer(
 ) -> str:
     if database is None:
         raise MSAError(
-            "the jackhmmer backend needs a sequence database: pass --msa-database "
-            "with a path to, for example, a UniRef90 FASTA (about 60 GB)."
+            "the jackhmmer backend needs a sequence database. Download UniRef90 "
+            "once with `bash scripts/setup_uniref90.sh`, then either leave it at "
+            f"{PATHS.databases / 'uniref90.fasta'} where it is found automatically, "
+            "or point at it with --msa-database or VEPBENCH_MSA_DATABASE. The "
+            "database is roughly 60 GB compressed and must never be committed to "
+            "git."
         )
     if shutil.which("jackhmmer") is None:
         raise MSAError("jackhmmer is not on PATH; see envs/README.md")
@@ -551,8 +588,9 @@ def _run_jackhmmer(
 def _run_hhblits(sequence: str, destination: Path, database: Path | None) -> str:
     if database is None:
         raise MSAError(
-            "the hhblits backend needs --msa-database with a UniRef30 prefix "
-            "(about 90 GB)."
+            "the hhblits backend needs a UniRef30 database prefix, about 90 GB. "
+            "Pass it with --msa-database or VEPBENCH_MSA_DATABASE, or put it at "
+            f"{PATHS.databases / 'UniRef30'} where it is found automatically."
         )
     if shutil.which("hhblits") is None:
         raise MSAError("hhblits is not on PATH; see envs/README.md")

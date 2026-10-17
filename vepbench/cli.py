@@ -312,13 +312,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--sequence", help="override the UniProt sequence")
     run.add_argument("--fasta", help="override the UniProt sequence from a FASTA file")
     run.add_argument("--msa", help="alignment file to use instead of generating one")
-    run.add_argument("--msa-backend", default="ebi",
-                     choices=["ebi", "colabfold", "jackhmmer", "hhblits", "none"],
-                     help="ebi needs no local database; colabfold gives the deepest "
-                          "alignments; jackhmmer and hhblits need one you supply")
+    run.add_argument("--msa-backend", default="colabfold",
+                     choices=["colabfold", "ebi", "jackhmmer", "hhblits", "none"],
+                     help="colabfold (default) is deepest for least effort; ebi needs "
+                          "no local database but is shallower; jackhmmer and hhblits "
+                          "search a database you supply and are the most sensitive")
     run.add_argument("--msa-database",
-                     help="for ebi, 'psiblast:uniprotkb' or 'ncbiblast:uniprotkb'; "
-                          "for jackhmmer or hhblits, the database path")
+                     help="for jackhmmer or hhblits, the database path (or set "
+                          "VEPBENCH_MSA_DATABASE, or leave it in data/databases/); "
+                          "for ebi, 'psiblast:uniprotkb' or 'ncbiblast:uniprotkb'")
     run.add_argument("--email", help="contact address for EBI job submission "
                                      "(or set VEPBENCH_EMAIL)")
     run.add_argument("--domain", help="domain window as START-END, 1-based inclusive")

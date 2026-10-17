@@ -228,3 +228,10 @@ def test_shallow_alignment_is_flagged_as_a_caveat(paths, structure_path, sequenc
     config.msa_override = path
     result = run_protein(ACCESSION, config)
     assert "shallow" in " ".join(result.metadata["caveats"]).lower()
+
+
+def test_default_msa_backend_is_colabfold():
+    """The deepest alignment for the least effort is the sensible default."""
+    from vepbench.config import RunConfig
+
+    assert RunConfig(predictors=[]).msa_backend == "colabfold"

@@ -306,6 +306,7 @@ vepbench status --uniprot Q9NRX5
 
 | symptom | fix |
 |---|---|
+| `OSError: [Errno 28] No space left on device` | the cache is on a small filesystem; see below |
 | `build backend is missing the 'build_editable' hook` | old pip or setuptools; see below |
 | `environment 'x' is not installed` | `python -m vepbench install-env x` |
 | `install did not finish` / `No module named 'filelock'` | `python -m vepbench install-env x` tops it up |
@@ -315,6 +316,31 @@ vepbench status --uniprot Q9NRX5
 | CUDA out of memory | `--dtype float16`, a smaller `--batch-size`, or `--device cpu` |
 | a weight download stalls | `export HF_HUB_DISABLE_XET=1` is already set for runners |
 | an upstream repo moved | the runner prints the upstream error; the install script names the repo |
+
+### If a download runs out of space
+
+Hugging Face defaults its cache to `~/.cache/huggingface`, which on a cluster
+is usually a small home quota that two or three models will fill, while the
+project filesystem has terabytes free.
+
+This repository therefore defaults the cache to `data/weights/huggingface`,
+beside the other weights, and passes that to every runner so predictions find
+them with no extra configuration. An explicit `HF_HOME` always wins:
+
+```bash
+export HF_HOME=/lustre/.../hf-cache      # if you want it somewhere else
+```
+
+Downloads now check free space before starting rather than dying partway. If
+an earlier run filled your home directory, reclaim it:
+
+```bash
+du -sh ~/.cache/huggingface
+rm -rf ~/.cache/huggingface
+```
+
+A download killed by ENOSPC leaves partial blobs behind, so clearing the
+cache is worth doing before retrying.
 
 ### If an environment half-installed
 

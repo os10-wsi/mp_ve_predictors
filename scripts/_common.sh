@@ -7,6 +7,12 @@ THIRD_PARTY="${VEPBENCH_THIRD_PARTY:-$REPO_ROOT/third_party}"
 WEIGHTS="${VEPBENCH_WEIGHTS:-$REPO_ROOT/data/weights}"
 mkdir -p "$THIRD_PARTY" "$WEIGHTS"
 
+# Hugging Face defaults to ~/.cache/huggingface. On a cluster that is a small
+# home quota, and a couple of models fill it, so default the cache to sit with
+# the other weights instead. An explicit HF_HOME always wins.
+export HF_HOME="${HF_HOME:-$WEIGHTS/huggingface}"
+mkdir -p "$HF_HOME"
+
 clone_repo() {
   local url="$1" name="$2" ref="${3:-}"
   local target="$THIRD_PARTY/$name"
@@ -86,4 +92,30 @@ free_space_at() {
     path="$(dirname "$path")"
   done
   df -Ph "${path:-/}" 2>/dev/null | awk 'NR==2 {print $4}'
+}
+
+# require_space <needed GB> <path>
+# Refuse a download that cannot fit, rather than filling the filesystem and
+# dying partway with ENOSPC.
+require_space() {
+  local needed="$1" path="$2"
+  local available
+  available="$(df -P --block-size=1G "$path" 2>/dev/null | awk 'NR==2 {print $4}')"
+  if [ -z "$available" ]; then
+    echo "could not measure free space at $path; continuing" >&2
+    return 0
+  fi
+  if awk -v a="$available" -v n="$needed" 'BEGIN {exit !(a < n)}'; then
+    cat >&2 <<MESSAGE
+
+Not enough space at $path
+  needed:    ${needed} GB
+  available: ${available} GB
+
+Point the cache somewhere larger and use the same value when you run:
+  export HF_HOME=/path/with/room
+MESSAGE
+    return 1
+  fi
+  return 0
 }

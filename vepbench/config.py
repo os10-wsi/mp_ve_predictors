@@ -55,6 +55,18 @@ class Paths:
         return Path(os.environ.get("VEPBENCH_WEIGHTS", self.data / "weights"))
 
     @property
+    def hf_home(self) -> Path:
+        """Default Hugging Face cache, kept with the other weights.
+
+        Hugging Face defaults to ~/.cache/huggingface. On a cluster that is
+        usually a small quota on a home filesystem, and a few model downloads
+        fill it. Keeping the cache beside the other weights puts it on the
+        same large volume as the rest of the project. An explicit HF_HOME
+        always wins.
+        """
+        return self.weights / "huggingface"
+
+    @property
     def third_party(self) -> Path:
         return Path(os.environ.get("VEPBENCH_THIRD_PARTY", self.root / "third_party"))
 

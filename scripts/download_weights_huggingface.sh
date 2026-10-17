@@ -74,7 +74,20 @@ for entry in "${CATALOGUE[@]}"; do
 done
 [ "$MATCHED" -gt 0 ] || usage
 
-DESTINATION="${HF_HOME:-$HOME/.cache/huggingface}"
+DESTINATION="$HF_HOME"
+
+# A previous run may have filled the old default on the home filesystem,
+# including partial blobs from a download that ran out of space.
+LEGACY="$HOME/.cache/huggingface"
+if [ "$DESTINATION" != "$LEGACY" ] && [ -d "$LEGACY" ]; then
+  LEGACY_SIZE="$(du -sh "$LEGACY" 2>/dev/null | cut -f1)"
+  if [ -n "$LEGACY_SIZE" ] && [ "$LEGACY_SIZE" != "0" ]; then
+    echo "Note: $LEGACY_SIZE sits in the old default cache at $LEGACY"
+    echo "      Weights now go to $DESTINATION, so that space can be reclaimed:"
+    echo "        rm -rf $LEGACY"
+    echo
+  fi
+fi
 
 if [ "${#SKIPPED[@]}" -gt 0 ]; then
   echo "Cannot fetch these yet:"
@@ -94,6 +107,7 @@ for entry in "${SELECTED[@]}"; do
 done
 
 echo "Free space for $DESTINATION: $(free_space_at "$DESTINATION")"
+require_space "$TOTAL" "$DESTINATION" || exit 1
 confirm_download "${TOTAL} GB" "Hugging Face weights: ${TARGET}" "$DESTINATION" || exit 1
 
 for entry in "${SELECTED[@]}"; do
@@ -103,4 +117,6 @@ done
 
 echo
 echo "Weights are under $DESTINATION."
-echo "If you set HF_HOME to put them elsewhere, set the same value when you run."
+echo "This is the default cache for this project, so runs find them without"
+echo "any extra configuration. Set HF_HOME to move it, and set the same value"
+echo "when you run the predictions."

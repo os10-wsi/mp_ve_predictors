@@ -462,6 +462,11 @@ def runner_environment() -> dict:
     env.setdefault("PYTHONNOUSERSITE", "1")
     if os.environ.get("VEPBENCH_ALLOW_XET") != "1":
         env.setdefault("HF_HUB_DISABLE_XET", "1")
+    # Keep model weights off the home filesystem, which on a cluster is
+    # usually a small quota that a couple of downloads will fill.
+    if not os.environ.get("HF_HOME"):
+        PATHS.hf_home.mkdir(parents=True, exist_ok=True)
+        env["HF_HOME"] = str(PATHS.hf_home)
     return env
 
 

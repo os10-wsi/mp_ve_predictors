@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from vepbench.envs import (
@@ -304,3 +306,36 @@ def test_a_damaged_environment_is_reported_not_marked(monkeypatch, tmp_path):
     with pytest.raises(EnvError, match="--force"):
         envs_module.create_env(envs_module.get_env("esm"), paths=paths, backend="uv")
     assert not get_env("esm").marker(paths).exists(), "a broken env must not be marked"
+
+
+# --- model weights must not land on a small home quota --------------------
+
+def test_hf_cache_defaults_beside_the_other_weights(tmp_path, monkeypatch):
+    """Hugging Face defaults to ~/.cache, which on a cluster is a small quota."""
+    from vepbench.config import Paths
+
+    monkeypatch.delenv("HF_HOME", raising=False)
+    monkeypatch.setenv("VEPBENCH_DATA", str(tmp_path / "data"))
+    paths = Paths(root=tmp_path)
+    assert paths.hf_home == paths.weights / "huggingface"
+    assert ".cache" not in str(paths.hf_home)
+
+
+def test_runners_inherit_the_project_cache(monkeypatch, tmp_path):
+    import vepbench.envs as envs_module
+    from vepbench.config import Paths
+
+    monkeypatch.delenv("HF_HOME", raising=False)
+    monkeypatch.setenv("VEPBENCH_DATA", str(tmp_path / "data"))
+    monkeypatch.setattr(envs_module, "PATHS", Paths(root=tmp_path))
+    environment = envs_module.runner_environment()
+    assert environment["HF_HOME"] == str(Paths(root=tmp_path).hf_home)
+    assert Path(environment["HF_HOME"]).exists(), "the cache directory is created"
+
+
+def test_an_explicit_hf_home_is_respected(monkeypatch, tmp_path):
+    import vepbench.envs as envs_module
+
+    monkeypatch.setenv("HF_HOME", "/scratch/models")
+    monkeypatch.setattr(envs_module, "PATHS", type(envs_module.PATHS)(root=tmp_path))
+    assert envs_module.runner_environment()["HF_HOME"] == "/scratch/models"

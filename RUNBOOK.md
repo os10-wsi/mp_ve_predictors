@@ -86,7 +86,26 @@ export FOLDX_BINARY=/path/to/foldx      # only if you licensed FoldX
 licence at <https://huggingface.co/EvolutionaryScale/esm3-sm-open-v1> as well
 as setting the token. Never put any of these in a tracked file.
 
-## 3. Smoke test, two minutes, no weights
+## 3. One command for all of it
+
+```bash
+bash scripts/bootstrap.sh                    # the verified core
+bash scripts/bootstrap.sh --tier full        # every environment and weight
+bash scripts/bootstrap.sh --backend conda    # build with conda instead of uv
+bash scripts/bootstrap.sh --dry-run          # print the steps, change nothing
+```
+
+It installs the package, builds the environments, fetches the weights, runs
+the smoke test and then runs a real predictor, printing each command as it
+goes. `--tier core` covers ESM, the Hugging Face language models and the
+ProteinMPNN pair, which is most of what you will use; `--tier full` adds the
+wrappers that drive upstream research repositories. Add `--yes` to skip the
+download confirmations.
+
+Everything below is what that script does, in case you would rather do it a
+piece at a time or something fails partway.
+
+## 3a. Smoke test, two minutes, no weights
 
 ```bash
 bash examples/run_demo.sh
@@ -95,6 +114,27 @@ bash examples/run_demo.sh
 Runs predict, merge and benchmark end to end on phospholamban using only the
 built-in baselines. If this works, the pipeline, the UniProt fetch and the
 AlphaFold download are all fine.
+
+## 3b. Pre-staging weights
+
+Weights otherwise download on first use. Fetch them deliberately when you want
+the cost paid once, or when the machine that runs the predictions has no
+outbound network:
+
+```bash
+bash scripts/download_weights_esm.sh esm1v          # 12.5 GB, five replicates
+bash scripts/download_weights_esm.sh esm2           # 2.5 GB
+bash scripts/download_weights_esm.sh esm2-3b        # 11 GB
+bash scripts/download_weights_esm.sh esm-if1        # 0.5 GB
+
+bash scripts/download_weights_huggingface.sh        # lists what is available
+bash scripts/download_weights_huggingface.sh all    # SaProt, ProSST, ProtT5, Ankh, ESM3
+bash scripts/download_weights_tranception.sh        # 3.1 GB
+```
+
+Each states its size and asks before downloading; `VEPBENCH_ASSUME_YES=1`
+skips the prompt. Hugging Face weights land in `HF_HOME`, so set that if you
+want them somewhere specific, and set the same value when you run.
 
 ## 4. First real predictor
 
@@ -159,6 +199,27 @@ automatically. Useful flags:
 
 Re-running is cheap: finished predictors are cached per protein against a
 fingerprint of their inputs.
+
+## 6a. On a cluster with no network on the compute nodes
+
+Stage every input on the login node, then run with `--offline`:
+
+```bash
+# login node: fetches sequences, structures and alignments into data/cache/
+vepbench prefetch --uniprot-list ids.txt --predictors all
+
+# compute node: no network needed
+vepbench run --uniprot-list ids.txt --predictors all --offline
+```
+
+`prefetch` works out which inputs the requested predictors and features
+actually need, and reports the alignment depth for each protein so you can see
+before committing compute which ones the evolutionary models cannot be trusted
+on. An `--offline` run refuses to touch the network and fails loudly if
+something was not staged, rather than hanging.
+
+Point `VEPBENCH_DATA` at shared storage so both nodes see the same cache, and
+set `HF_HOME` to a shared path too if the weights live there.
 
 ## 7. Alignments
 

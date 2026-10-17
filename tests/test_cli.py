@@ -28,6 +28,10 @@ def workspace(tmp_path, monkeypatch):
     config.PATHS.ensure()
     shutil.copy(FIXTURES / f"{ACCESSION}.uniprot.json",
                 config.PATHS.annotations / f"{ACCESSION}.json")
+    # Seed the structure too: the default feature set includes rSASA and
+    # pLDDT, so anything using the defaults needs one.
+    shutil.copy(FIXTURES / "AF-P26678-F1-model_v6.pdb",
+                config.PATHS.structures / "AF-P26678-F1-model_v6.pdb")
 
     from vepbench import cli
     importlib.reload(cli)
@@ -161,3 +165,49 @@ def test_uniprot_list_file(workspace):
         "--msa-backend", "none", "--offline",
     ]) == 0
     assert (tmp_path / "outputs" / ACCESSION / "predictions_long.csv").exists()
+
+
+def test_prefetch_caches_inputs_then_offline_run_works(workspace, monkeypatch):
+    """The cluster pattern: stage inputs where there is a network, run without one."""
+    tmp_path, cli = workspace
+    # The UniProt entry and AlphaFold model are already in the cache from the
+    # fixture, so prefetch should be satisfied without touching the network.
+    monkeypatch.setattr(
+        "vepbench.uniprot.requests.get",
+        lambda *a, **k: pytest.fail("prefetch should not re-fetch a cached entry"),
+    )
+    assert cli.main([
+        "prefetch", "--uniprot", ACCESSION, "--predictors", "blosum62_baseline",
+        "--msa-backend", "none",
+    ]) == 0
+    assert cli.main([
+        "run", "-q", "--uniprot", ACCESSION, "--predictors", "blosum62_baseline",
+        "--offline", "--msa-backend", "none",
+    ]) == 0
+    assert (tmp_path / "outputs" / ACCESSION / "predictions_wide.csv").exists()
+
+
+def test_prefetch_reports_what_it_will_cache(workspace, capsys):
+    _tmp_path, cli = workspace
+    cli.main(["prefetch", "--uniprot", ACCESSION, "--predictors", "proteinmpnn",
+              "--msa-backend", "none"])
+    out = capsys.readouterr().out
+    assert "sequence" in out
+    assert "structure" in out
+
+
+def test_prefetch_skips_inputs_no_predictor_needs(workspace, capsys):
+    """A sequence-only predictor should not drag in a structure."""
+    _tmp_path, cli = workspace
+    cli.main(["prefetch", "--uniprot", ACCESSION, "--predictors", "blosum62_baseline",
+              "--features", "physchem", "--msa-backend", "none"])
+    out = capsys.readouterr().out
+    assert "structure" not in out.split("===")[0]
+
+
+def test_prefetch_honours_feature_requirements(workspace, capsys):
+    """Asking for a structural feature should stage a structure."""
+    _tmp_path, cli = workspace
+    cli.main(["prefetch", "--uniprot", ACCESSION, "--predictors", "blosum62_baseline",
+              "--features", "rsasa", "--msa-backend", "none"])
+    assert "structure" in capsys.readouterr().out

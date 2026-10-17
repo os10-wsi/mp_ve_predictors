@@ -102,6 +102,79 @@ def command_run(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def command_prefetch(args: argparse.Namespace) -> int:
+    """Download and cache every input a later run will need.
+
+    Written for clusters, where the login node has network access and the
+    compute nodes do not. Run this where there is a network, then run the
+    predictions with ``--offline`` on the node.
+    """
+    from vepbench.msa import MSAError, build_msa
+    from vepbench.predictors import REGISTRY, resolve_names
+    from vepbench.structure import StructureError, load_structure
+    from vepbench.uniprot import choose_domain, fetch_uniprot
+
+    if args.email:
+        os.environ["VEPBENCH_EMAIL"] = args.email
+
+    names = resolve_names(args.predictors)
+    needed = {
+        requirement for name in names if name in REGISTRY
+        for requirement in REGISTRY[name].spec.requires
+    }
+    from vepbench.features import DEFAULT_FEATURES, inputs_for_features
+    needed |= inputs_for_features(args.features or list(DEFAULT_FEATURES))
+
+    want_structure = "structure" in needed
+    want_msa = "msa" in needed and args.msa_backend != "none"
+    print(f"caching inputs for {len(_uniprot_ids(args))} protein(s): sequence"
+          + (", structure" if want_structure else "")
+          + (f", alignment via {args.msa_backend}" if want_msa else ""))
+
+    failures = 0
+    for uniprot_id in _uniprot_ids(args):
+        print(f"\n=== {uniprot_id} ===")
+        try:
+            record = fetch_uniprot(uniprot_id, paths=PATHS, force=args.force)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  sequence FAILED: {exc}")
+            failures += 1
+            continue
+        print(f"  sequence  {record.length} residues, {record.entry_name}")
+
+        if "domain" in needed:
+            prefer = "transmembrane" if record.is_membrane_protein else "auto"
+            window, note = choose_domain(record, prefer=prefer, paths=PATHS)
+            print(f"  domain    {window[0]}-{window[1]} ({note})")
+
+        if want_structure:
+            try:
+                structure = load_structure(uniprot_id, record.sequence, paths=PATHS,
+                                           force=args.force)
+                print(f"  structure {structure.path.name}, coverage "
+                      f"{structure.coverage:.0%}")
+            except (StructureError, Exception) as exc:  # noqa: BLE001
+                print(f"  structure FAILED: {exc}")
+                failures += 1
+
+        if want_msa:
+            try:
+                msa = build_msa(uniprot_id, record.sequence, backend=args.msa_backend,
+                                paths=PATHS, force=args.force,
+                                database=args.msa_database,
+                                email=os.environ.get("VEPBENCH_EMAIL", ""))
+                flag = " (SHALLOW)" if msa.is_shallow else ""
+                print(f"  alignment {msa.n_sequences} sequences, "
+                      f"Neff {msa.n_effective:.0f}{flag}")
+            except (MSAError, Exception) as exc:  # noqa: BLE001
+                print(f"  alignment FAILED: {exc}")
+                failures += 1
+
+    print(f"\ncache is at {PATHS.cache}")
+    print("Runs can now use --offline, including on a node with no network.")
+    return 1 if failures else 0
+
+
 def command_merge(args: argparse.Namespace) -> int:
     from vepbench.merge import load_table, merge_with_dms
     from vepbench.uniprot import fetch_uniprot
@@ -351,6 +424,23 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--offline", action="store_true",
                      help="use only cached inputs; never reach the network")
     run.set_defaults(func=command_run)
+
+    prefetch = sub.add_parser(
+        "prefetch",
+        help="download and cache sequences, structures and alignments ahead of a run",
+    )
+    prefetch.add_argument("--uniprot", nargs="*")
+    prefetch.add_argument("--uniprot-list")
+    prefetch.add_argument("--predictors", nargs="+", default=["all"],
+                          help="decides which inputs are needed")
+    prefetch.add_argument("--features", nargs="*", default=list(DEFAULT_FEATURES),
+                          choices=list(ALL_FEATURES))
+    prefetch.add_argument("--msa-backend", default="colabfold",
+                          choices=["colabfold", "ebi", "jackhmmer", "hhblits", "none"])
+    prefetch.add_argument("--msa-database")
+    prefetch.add_argument("--email")
+    prefetch.add_argument("--force", action="store_true")
+    prefetch.set_defaults(func=command_prefetch)
 
     merge = sub.add_parser("merge", help="join predictions onto a DMS table")
     merge.add_argument("--dms", required=True)

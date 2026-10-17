@@ -306,6 +306,7 @@ vepbench status --uniprot Q9NRX5
 
 | symptom | fix |
 |---|---|
+| `build backend is missing the 'build_editable' hook` | old pip or setuptools; see below |
 | `environment 'x' is not installed` | `python -m vepbench install-env x` |
 | ESM-IF1 wants torch-scatter | `bash envs/esm_if1/install.sh`, needs `data.pyg.org` |
 | SaProt cannot find foldseek | `bash scripts/install_foldseek.sh`, then add it to PATH |
@@ -313,6 +314,40 @@ vepbench status --uniprot Q9NRX5
 | CUDA out of memory | `--dtype float16`, a smaller `--batch-size`, or `--device cpu` |
 | a weight download stalls | `export HF_HUB_DISABLE_XET=1` is already set for runners |
 | an upstream repo moved | the runner prints the upstream error; the install script names the repo |
+
+### If the editable install is refused
+
+```
+ERROR: Project file:///... has a 'pyproject.toml' and its build backend is
+missing the 'build_editable' hook.
+```
+
+Editable installs need PEP 660, which means pip 21.3 or newer and setuptools
+64 or newer. On a cluster this usually means one of two things: the tooling
+predates those versions, or there is no outbound network, so pip cannot fetch
+the setuptools that `pyproject.toml` asks for and quietly falls back to an
+older one already present.
+
+In order of preference:
+
+```bash
+python3 -m pip install --upgrade pip setuptools wheel   # the real fix
+python3 -m pip install -e .
+
+python3 -m pip install .        # not editable, but fine if you are not editing
+
+cd /path/to/mp_ve_predictors    # no installation at all
+python3 -m vepbench list
+```
+
+The last one always works, because the package is pure Python with no
+compiled parts. Every `vepbench ...` command becomes `python3 -m vepbench ...`
+run from the repository directory. `scripts/bootstrap.sh` already tries these
+in order and tells you which one it used.
+
+A `setup.py` shim sits beside `pyproject.toml` so that an older pip falls back
+to the legacy path instead of refusing outright. It holds no configuration;
+everything is still in `pyproject.toml`.
 
 ## 12. Before you trust a benchmark
 

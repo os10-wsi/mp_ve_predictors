@@ -1,5 +1,9 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# setuptools 64 is the first release with the PEP 660 build_editable hook, so
+# it is the real floor for `pip install -e .`. A setup.py shim sits beside
+# this file so that an older toolchain, which pip cannot upgrade when there is
+# no network, falls back to the legacy path rather than refusing outright.
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]

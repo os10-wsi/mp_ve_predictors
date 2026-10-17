@@ -57,7 +57,37 @@ if [ -z "${HF_TOKEN:-}" ]; then
 fi
 
 step "1. install the orchestrator"
-run python3 -m pip install -e .
+# Editable needs PEP 660, which means pip 21.3+ and setuptools 64+. On a
+# cluster with no network, pip cannot fetch the setuptools that
+# pyproject.toml asks for and falls back to whatever is installed, which may
+# be too old. Try editable, then a plain install, and only then give up and
+# fall back to running from the source tree, which needs no install at all.
+if [ "$DRY_RUN" = "1" ]; then
+  echo "+ python3 -m pip install -e ."
+elif python3 -m pip install -e . ; then
+  echo "installed in editable mode"
+elif python3 -m pip install --upgrade pip setuptools wheel && python3 -m pip install -e . ; then
+  echo "installed in editable mode after upgrading the build tools"
+elif python3 -m pip install . ; then
+  echo "installed normally; re-run this after changing the source"
+else
+  cat <<'FALLBACK'
+
+Could not install the package. It is pure Python, so this is survivable:
+run it from the source tree instead, which needs no installation.
+
+    cd "$(pwd)"
+    python3 -m vepbench list
+
+Every command below that reads `vepbench ...` becomes `python3 -m vepbench ...`
+and must be run from this directory. To fix the install properly:
+
+    python3 -m pip install --upgrade pip setuptools wheel
+
+FALLBACK
+  echo "continuing with the source tree on PYTHONPATH"
+  export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+fi
 
 step "2. build the isolated environments ($TIER)"
 if [ "$TIER" = "core" ]; then

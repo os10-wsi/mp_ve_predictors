@@ -211,3 +211,40 @@ def test_prefetch_honours_feature_requirements(workspace, capsys):
     cli.main(["prefetch", "--uniprot", ACCESSION, "--predictors", "blosum62_baseline",
               "--features", "rsasa", "--msa-backend", "none"])
     assert "structure" in capsys.readouterr().out
+
+
+def test_package_runs_without_being_installed():
+    """The fallback for clusters whose pip cannot do an editable install.
+
+    The package is pure Python, so running it from the source tree must work
+    with nothing installed but its three runtime dependencies.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "-m", "vepbench", "list"],
+        cwd=root, capture_output=True, text=True, check=False,
+        env={"PATH": "/usr/bin:/bin", "HOME": "/tmp", "PYTHONPATH": str(root)},
+    )
+    assert result.returncode == 0, result.stderr[-500:]
+    assert "predictors" in result.stdout
+
+
+def test_setup_py_shim_exists_and_adds_no_configuration():
+    """Old pip needs a setup.py to fall back to; it must stay a shim."""
+    from pathlib import Path
+
+    shim = Path(__file__).resolve().parents[1] / "setup.py"
+    assert shim.exists(), "setup.py shim is missing; old pip will refuse -e ."
+    body = [
+        line for line in shim.read_text().splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    # docstring, import and a bare setup() call: nothing that could drift
+    # out of step with pyproject.toml
+    assert "setup()" in shim.read_text()
+    assert "name=" not in shim.read_text(), "configuration belongs in pyproject.toml"
+    assert len(body) < 25

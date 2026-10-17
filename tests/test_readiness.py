@@ -135,6 +135,34 @@ class TestLegacyCache:
         (check,) = check_legacy_cache(paths)
         assert check.fix == f"rm -rf {home}"
 
+    def test_a_copy_in_both_caches_is_reported_as_waste(self, paths, home):
+        """The usual state after HF_HOME moved: the same weights twice."""
+        repo = "facebook/esm2_t33_650M_UR50D"
+        for hub in (home / "hub", hf_cache_root(paths)):
+            blob = hub / f"models--{repo.replace('/', '--')}" / "snapshots" / "a"
+            blob.mkdir(parents=True)
+            (blob / "model.bin").write_bytes(b"x" * 2048)
+        (check,) = check_legacy_cache(paths)
+        assert check.name == "duplicate weights"
+        assert check.fix.startswith("rm -rf")
+        assert repo in check.detail
+
+    def test_moving_and_deleting_are_reported_separately(self, paths, home):
+        """Mixed cache: one model only in the old one, one in both."""
+        for repo, hubs in (
+            ("facebook/only-here", [home / "hub"]),
+            ("facebook/in-both", [home / "hub", hf_cache_root(paths)]),
+        ):
+            for hub in hubs:
+                blob = hub / f"models--{repo.replace('/', '--')}" / "snapshots" / "a"
+                blob.mkdir(parents=True)
+                (blob / "model.bin").write_bytes(b"x" * 1024)
+        move, delete = check_legacy_cache(paths)
+        assert "facebook/only-here" in move.detail
+        assert "mv " in move.fix and "rm -rf" not in move.fix
+        assert "facebook/in-both" in delete.detail
+        assert "facebook/only-here" not in delete.fix
+
 
 class TestAssess:
     def test_uninstalled_predictor_is_blocked_with_a_reason(self, paths):
@@ -231,3 +259,33 @@ def test_dssp_is_checked_only_for_the_feature_that_needs_it():
     assert not [c for c in check_binaries(["esm2_650m"]) if c.name == "binary mkdssp"]
     checks = check_binaries(["esm2_650m"], features=["secondary_structure"])
     assert [c for c in checks if c.name == "binary mkdssp"]
+
+
+def test_a_missing_binary_demotes_the_predictors_that_need_it(paths, monkeypatch):
+    """SaProt cannot run without foldseek, however complete its environment."""
+    monkeypatch.setattr("vepbench.envs.EnvSpec.is_installed", lambda self, p: True)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    cache_model(paths, "westlake-repl/SaProt_650M_AF2")
+    result = assess(["saprot"], paths=paths)
+    assert result.ready == []
+    assert "foldseek" in result.blocked["saprot"]
+
+
+def test_an_unset_token_demotes_the_gated_models(paths, monkeypatch):
+    monkeypatch.setattr("vepbench.envs.EnvSpec.is_installed", lambda self, p: True)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    result = assess(["esm3_open"], paths=paths)
+    assert result.ready == []
+    assert "HF_TOKEN" in result.blocked["esm3_open"]
+
+
+def test_nothing_is_both_ready_and_missing_something(paths, monkeypatch):
+    """The report must not contradict itself anywhere in the registry."""
+    monkeypatch.setattr("vepbench.envs.EnvSpec.is_installed", lambda self, p: True)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("FOLDX_BINARY", raising=False)
+    result = assess(paths=paths)
+    gated = {name for check in result.checks if check.status == MISSING
+             for name in check.blocks}
+    assert not gated & set(result.ready)

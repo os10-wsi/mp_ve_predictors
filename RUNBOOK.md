@@ -173,9 +173,15 @@ python3 -m vepbench doctor --predictors esm2_650m gemme || exit 1
 
 Warnings do not fail it. The common one is weights left in the old
 `~/.cache/huggingface`: runs set `HF_HOME` to `data/weights/huggingface`, so
-anything still in the home cache is invisible to them and would be fetched
-again. `doctor` prints a `mv` for it rather than an `rm`, because that is
-often the only copy.
+anything still in the home cache is invisible to them. What to do depends on
+what the new cache already holds, and `doctor` distinguishes the two cases
+rather than making you guess:
+
+- **old HF cache** — these models exist *only* in the home cache. It prints a
+  `mv`, never an `rm`: this is the only copy.
+- **duplicate weights** — these are in both caches, so the home copy is space
+  paid for twice. It prints an `rm -rf` naming exactly those directories, and
+  how much you get back.
 
 ## 4. First real predictor
 

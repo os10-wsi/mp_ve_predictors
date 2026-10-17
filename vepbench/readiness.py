@@ -33,6 +33,9 @@ class Check:
     status: str
     detail: str = ""
     fix: str = ""
+    # Predictors this check gates. A missing check with blocks set demotes
+    # them out of `ready`, so the two halves of the report cannot disagree.
+    blocks: tuple[str, ...] = ()
 
     @property
     def symbol(self) -> str:
@@ -149,27 +152,29 @@ def check_weights(names: list[str], paths: Paths = PATHS) -> list[Check]:
 def check_binaries(
     names: list[str], msa_backend: str = "colabfold", features: list[str] | None = None,
 ) -> list[Check]:
-    wanted = set()
+    wanted: dict[str, set[str]] = {}
     for name in names:
         spec = REGISTRY[name].spec
         if "saprot" in name:
-            wanted.add("foldseek")
+            wanted.setdefault("foldseek", set()).add(name)
         if name == "gemme":
-            wanted.add("java")
+            wanted.setdefault("java", set()).add(name)
         if name == "deepsequence":
-            wanted.add("docker")
+            wanted.setdefault("docker", set()).add(name)
         if spec.env == "foldx":
-            wanted.add("foldx")
+            wanted.setdefault("foldx", set()).add(name)
     # The local alignment backends and DSSP are chosen by flag rather than by
     # predictor, so they have to be asked for separately.
     if msa_backend in ("jackhmmer", "hhblits") and any(
         REGISTRY[n].spec.needs_msa for n in names
     ):
-        wanted.add(msa_backend)
+        wanted.setdefault(msa_backend, set())
     if "secondary_structure" in (features or []):
-        wanted.add("mkdssp")
+        wanted.setdefault("mkdssp", set())
+
     checks = []
-    for binary in sorted(wanted):
+    for binary, used_by in sorted(wanted.items()):
+        blocks = tuple(sorted(used_by))
         if binary == "foldx":
             path = os.environ.get("FOLDX_BINARY")
             present = bool(path) and Path(path).exists()
@@ -177,14 +182,16 @@ def check_binaries(
                 name="binary foldx", status=OK if present else MISSING,
                 detail=path if present else "FOLDX_BINARY not set or not a file",
                 fix="" if present else "export FOLDX_BINARY=/path/to/foldx",
+                blocks=() if present else blocks,
             ))
             continue
         found = shutil.which(binary)
-        used_by, fix = BINARIES[binary]
+        described, fix = BINARIES[binary]
         checks.append(Check(
             name=f"binary {binary}", status=OK if found else MISSING,
-            detail=found or f"not on PATH, needed by {used_by}",
+            detail=found or f"not on PATH, needed by {', '.join(blocks) or described}",
             fix="" if found else fix,
+            blocks=() if found else blocks,
         ))
     return checks
 
@@ -224,6 +231,7 @@ def check_credentials(names: list[str], msa_backend: str) -> list[Check]:
                 "accept the licence at huggingface.co/EvolutionaryScale/"
                 "esm3-sm-open-v1 and export HF_TOKEN"
             ),
+            blocks=() if present else tuple(sorted(gated)),
         ))
     if msa_backend == "ebi":
         present = bool(os.environ.get("VEPBENCH_EMAIL"))
@@ -254,36 +262,84 @@ def check_storage(paths: Paths = PATHS) -> list[Check]:
     return checks
 
 
+def _size(nbytes: int) -> str:
+    """Bytes as the unit a reader can act on. 0.0 GB tells them nothing."""
+    if nbytes >= 1e9:
+        return f"{nbytes / 1e9:.1f} GB"
+    if nbytes >= 1e6:
+        return f"{nbytes / 1e6:.0f} MB"
+    return f"{nbytes / 1e3:.0f} kB"
+
+
+def cached_models(hub: Path) -> dict[str, int]:
+    """Repository ids with a usable snapshot under this hub, and their size.
+
+    Symlinks are not counted: Hugging Face points snapshot files at shared
+    blobs, so following them would count every file twice.
+    """
+    found: dict[str, int] = {}
+    if not hub.is_dir():
+        return found
+    for folder in sorted(hub.glob("models--*")):
+        snapshots = folder / "snapshots"
+        if not snapshots.is_dir() or not any(snapshots.iterdir()):
+            continue
+        size = sum(f.stat().st_size for f in folder.rglob("*")
+                   if f.is_file() and not f.is_symlink())
+        found[folder.name.removeprefix("models--").replace("--", "/")] = size
+    return found
+
+
 def check_legacy_cache(paths: Paths = PATHS) -> list[Check]:
     """Notice weights left in the Hugging Face default cache.
 
     Runs set ``HF_HOME`` to the weights directory, so anything still in
-    ``~/.cache/huggingface`` is invisible to them and would be downloaded
-    again. Moving it is the fix; deleting it is only safe once the models
-    are somewhere a run can see, and this is often the only copy.
+    ``~/.cache/huggingface`` is invisible to them. Whether that matters
+    depends on what the new cache already holds, so say which: a model held
+    only in the old cache has to be moved, while one held in both was paid
+    for twice and is safe to delete. Guessing wrong in either direction
+    either loses weights or wastes tens of gigabytes.
     """
     home_cache = Path.home() / ".cache" / "huggingface"
     current = hf_cache_root(paths)
     if not home_cache.is_dir() or current == home_cache / "hub":
         return []
-    stranded = sorted(
-        folder.name.removeprefix("models--").replace("--", "/")
-        for folder in (home_cache / "hub").glob("models--*")
-        if (folder / "snapshots").is_dir() and any((folder / "snapshots").iterdir())
-    )
+    stranded = cached_models(home_cache / "hub")
     if not stranded:
         return [Check(
             name="old HF cache", status=WARNING,
             detail=f"{home_cache} holds no usable models but is still taking up space",
             fix=f"rm -rf {home_cache}",
         )]
-    return [Check(
-        name="old HF cache", status=WARNING,
-        detail=(f"{len(stranded)} model(s) sit in {home_cache}, which runs no longer "
-                f"read: {', '.join(stranded)}"),
-        fix=(f"mkdir -p {current} && mv {home_cache / 'hub'}/models--* {current}/  "
-             f"# move, do not delete: this may be the only copy"),
-    )]
+
+    present = set(cached_models(current)) if current.is_dir() else set()
+    duplicated = {k: v for k, v in stranded.items() if k in present}
+    only_here = {k: v for k, v in stranded.items() if k not in present}
+
+    checks = []
+    if only_here:
+        checks.append(Check(
+            name="old HF cache", status=WARNING,
+            detail=(f"{len(only_here)} model(s) ({_size(sum(only_here.values()))}) exist "
+                    f"only in {home_cache}, which runs no longer read: "
+                    f"{', '.join(sorted(only_here))}"),
+            fix=(f"mkdir -p {current} && mv {home_cache / 'hub'}/models--* {current}/  "
+                 f"# move, do not delete: this is the only copy"),
+        ))
+    if duplicated:
+        # One `rm -rf` per line would be six absolute paths of 90 characters.
+        # Name the directory once and brace-expand the rest.
+        folders = sorted(f"models--{name.replace('/', '--')}" for name in duplicated)
+        target = (f"{home_cache / 'hub'}/{folders[0]}" if len(folders) == 1
+                  else f"{home_cache / 'hub'}/{{{','.join(folders)}}}")
+        checks.append(Check(
+            name="duplicate weights", status=WARNING,
+            detail=(f"{len(duplicated)} model(s) are in both caches, so "
+                    f"{_size(sum(duplicated.values()))} in {home_cache} is wasted: "
+                    f"{', '.join(sorted(duplicated))}"),
+            fix=f"rm -rf {target}  # the cache runs read already has these",
+        ))
+    return checks
 
 
 def assess(
@@ -322,10 +378,25 @@ def assess(
         work_dir=paths.cache / "probe",
         structure=object(), msa=object(), domain=(1, 5),  # presence is all that matters
     )
+    # A predictor's own availability() cannot see an absent foldseek or an
+    # unset HF_TOKEN, so fold those checks back in. Without this the report
+    # contradicts itself: ready here, missing three lines further up.
+    gated: dict[str, list[str]] = {}
+    for check in result.checks:
+        if check.status != MISSING:
+            continue
+        for blocked_name in check.blocks:
+            gated.setdefault(blocked_name, []).append(
+                f"{check.name} ({check.fix})" if check.fix else check.name
+            )
+
     for name in names:
         availability = REGISTRY[name].availability(complete, paths=paths)
         if not availability.available:
             result.blocked[name] = availability.reason
+            continue
+        if name in gated:
+            result.blocked[name] = "needs " + "; ".join(gated[name])
             continue
         absent = [repo for repo in model_identifiers(name)
                   if not hf_model_cached(repo, paths=paths)]

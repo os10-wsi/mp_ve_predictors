@@ -11,6 +11,9 @@ per-position structural and evolutionary features.
 Built for membrane-protein biogenesis benchmarking, which shapes several
 decisions below; see [Membrane proteins](#membrane-proteins).
 
+New here? [RUNBOOK.md](RUNBOOK.md) is the step-by-step order to do things
+in, from a fresh clone to merged predictions.
+
 ## Quick start
 
 ```bash

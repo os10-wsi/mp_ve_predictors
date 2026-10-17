@@ -1,0 +1,5 @@
+# RaSP prepares structures with these before running its cavity model.
+# Upstream installs them through conda; there are no PyPI wheels.
+reduce
+openmm
+pdbfixer

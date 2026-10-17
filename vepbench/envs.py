@@ -51,6 +51,14 @@ class EnvSpec:
     def requirements(self, paths: Paths = PATHS) -> Path:
         return self.directory(paths) / "requirements.txt"
 
+    def conda_packages(self, paths: Paths = PATHS) -> Path:
+        """Packages that only conda can supply, such as compiled binaries.
+
+        Used only by the conda backend. With uv these have to be installed by
+        hand, and the environment's install.sh says so.
+        """
+        return self.directory(paths) / "conda-packages.txt"
+
     def install_script(self, paths: Paths = PATHS) -> Path:
         return self.directory(paths) / "install.sh"
 
@@ -169,35 +177,129 @@ register_env(EnvSpec(
 ))
 
 
-def uv_executable() -> str:
-    uv = shutil.which("uv")
-    if uv is None:
-        raise EnvError(
-            "uv is not on PATH. Install it from https://docs.astral.sh/uv/, or build the "
-            "environments by hand from envs/<name>/requirements.txt."
-        )
-    return uv
+# Environments can be built with uv or with the conda family. Both end up at
+# the same path, ``envs/<name>/.venv``, so nothing downstream has to care
+# which was used: a conda environment is created with --prefix rather than a
+# name, and its interpreter lands at the same place a venv's would.
+UV_BACKEND = "uv"
+CONDA_BACKENDS = ("micromamba", "mamba", "conda")
+ENV_BACKENDS = (UV_BACKEND,) + CONDA_BACKENDS
+
+# Conda channels, in priority order. bioconda carries the structural-biology
+# binaries (foldseek, hmmer, reduce) that have no wheels on PyPI.
+CONDA_CHANNELS = ("conda-forge", "bioconda")
 
 
-def create_env(spec: EnvSpec, *, paths: Paths = PATHS, force: bool = False) -> Path:
-    """Create the virtual environment and install its pinned requirements."""
-    directory = spec.directory(paths)
-    if not directory.exists():
-        raise EnvError(f"no environment definition at {directory}")
-    venv = spec.venv(paths)
-    if venv.exists() and force:
-        shutil.rmtree(venv)
+def resolve_backend(requested: str | None = None) -> str:
+    """Pick the tool that builds environments.
+
+    An explicit choice wins, then ``VEPBENCH_ENV_BACKEND``, then whatever is
+    on PATH. uv is preferred when present because it is much faster, but conda
+    is a first-class alternative and is the better choice on a cluster where
+    the compiled dependencies already come from conda.
+    """
+    requested = requested or os.environ.get("VEPBENCH_ENV_BACKEND")
+    if requested:
+        if requested not in ENV_BACKENDS:
+            raise EnvError(
+                f"unknown environment backend {requested!r}; "
+                f"choose one of {', '.join(ENV_BACKENDS)}"
+            )
+        if shutil.which(requested) is None:
+            raise EnvError(f"{requested} was requested but is not on PATH")
+        return requested
+    for candidate in (UV_BACKEND, *CONDA_BACKENDS):
+        if shutil.which(candidate) is not None:
+            return candidate
+    raise EnvError(
+        "no environment backend found. Install uv "
+        "(https://docs.astral.sh/uv/), or conda, mamba or micromamba, or build "
+        "the environments by hand from envs/<name>/requirements.txt."
+    )
+
+
+def _create_with_uv(spec: EnvSpec, paths: Paths, venv: Path) -> None:
+    uv = shutil.which(UV_BACKEND)
     if not venv.exists():
-        log.info("creating environment %s (python %s)", spec.name, spec.python)
-        subprocess.run([uv_executable(), "venv", "--python", spec.python, str(venv)],
-                       check=True)
+        log.info("creating %s with uv (python %s)", spec.name, spec.python)
+        subprocess.run([uv, "venv", "--python", spec.python, str(venv)], check=True)
     requirements = spec.requirements(paths)
     if requirements.exists():
         subprocess.run(
-            [uv_executable(), "pip", "install", "--python", str(spec.interpreter(paths)),
+            [uv, "pip", "install", "--python", str(spec.interpreter(paths)),
              "-r", str(requirements)],
             check=True,
         )
+    conda_packages = spec.conda_packages(paths)
+    if conda_packages.exists():
+        wanted = _read_package_list(conda_packages)
+        log.warning(
+            "%s also wants these from conda, which uv cannot supply: %s. Install "
+            "them yourself, or rebuild this environment with "
+            "`--backend conda`.", spec.name, ", ".join(wanted),
+        )
+
+
+def _create_with_conda(spec: EnvSpec, paths: Paths, venv: Path, backend: str) -> None:
+    conda = shutil.which(backend)
+    channels: list[str] = []
+    for channel in CONDA_CHANNELS:
+        channels += ["-c", channel]
+
+    if not venv.exists():
+        log.info("creating %s with %s (python %s)", spec.name, backend, spec.python)
+        subprocess.run(
+            [conda, "create", "--yes", "--prefix", str(venv),
+             f"python={spec.python}", "pip", *channels],
+            check=True,
+        )
+
+    conda_packages = spec.conda_packages(paths)
+    if conda_packages.exists():
+        wanted = _read_package_list(conda_packages)
+        if wanted:
+            log.info("installing conda packages for %s: %s", spec.name, ", ".join(wanted))
+            subprocess.run(
+                [conda, "install", "--yes", "--prefix", str(venv), *channels, *wanted],
+                check=True,
+            )
+
+    requirements = spec.requirements(paths)
+    if requirements.exists():
+        # pip inside the prefix, so the pins in requirements.txt still apply.
+        subprocess.run(
+            [str(spec.interpreter(paths)), "-m", "pip", "install", "-r",
+             str(requirements)],
+            check=True,
+        )
+
+
+def _read_package_list(path: Path) -> list[str]:
+    return [
+        line.strip() for line in path.read_text().splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+
+def create_env(
+    spec: EnvSpec, *, paths: Paths = PATHS, force: bool = False,
+    backend: str | None = None,
+) -> Path:
+    """Create the environment and install its pinned requirements."""
+    directory = spec.directory(paths)
+    if not directory.exists():
+        raise EnvError(f"no environment definition at {directory}")
+    chosen = resolve_backend(backend)
+
+    venv = spec.venv(paths)
+    if venv.exists() and force:
+        shutil.rmtree(venv)
+
+    if chosen == UV_BACKEND:
+        _create_with_uv(spec, paths, venv)
+    else:
+        _create_with_conda(spec, paths, venv, chosen)
+
     install = spec.install_script(paths)
     if install.exists():
         log.info("running %s", install)

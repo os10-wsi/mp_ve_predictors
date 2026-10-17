@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 bash "$(cd "$(dirname "$0")/../.." && pwd)/scripts/install_rasp.sh"
-echo "RaSP prepares structures with reduce and pdbfixer, which upstream installs"
-echo "through conda. Without them, use the Colab notebook in the repository to"
-echo "reproduce their environment."
+if ! command -v reduce >/dev/null 2>&1 && [ ! -x "$(dirname "$0")/.venv/bin/reduce" ]; then
+  echo "RaSP prepares structures with reduce, openmm and pdbfixer, which have no"
+  echo "PyPI wheels. Rebuild this environment with --backend conda to get them,"
+  echo "or install them yourself:"
+  echo "  conda install -c conda-forge -c bioconda reduce openmm pdbfixer"
+fi

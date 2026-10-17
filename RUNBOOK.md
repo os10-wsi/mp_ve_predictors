@@ -8,7 +8,7 @@ Getting from a fresh clone to merged predictions on your own GPU machine.
 | | why | check |
 |---|---|---|
 | Python 3.10+ | the orchestrator | `python3 --version` |
-| [uv](https://docs.astral.sh/uv/) | builds the isolated environments | `uv --version` |
+| uv **or** conda | builds the isolated environments | `uv --version` or `conda --version` |
 | git | install scripts clone upstream repositories | `git --version` |
 | NVIDIA driver supporting CUDA 13 | the pinned torch build | `nvidia-smi` |
 | ~80 GB free disk | environments and model weights | `df -h .` |
@@ -24,7 +24,41 @@ uv pip install --python envs/esm/.venv/bin/python \
 
 Optional, each needed only by specific predictors: Java for GEMME,
 `foldseek` for SaProt, `mkdssp` for secondary-structure features, Docker for
-DeepSequence, HMMER for the local MSA backend.
+DeepSequence, HMMER for the local MSA backend. With the conda backend most of
+these are installed for you; see below.
+
+### uv or conda
+
+Either works, and both put the environment in the same place, so nothing else
+changes. uv is used when present because it is much faster. On a cluster where
+your compiled dependencies already come from conda, prefer conda:
+
+```bash
+python -m vepbench install-env esm --backend conda     # or mamba, micromamba
+export VEPBENCH_ENV_BACKEND=conda                      # to make it the default
+```
+
+Conda creates each environment with `--prefix envs/<name>/.venv` rather than
+a named environment, so the interpreter lands exactly where a virtual
+environment's would. Nothing downstream can tell the difference, and you can
+build different environments with different backends.
+
+**Conda does more for you.** Four environments need binaries that have no
+PyPI wheel, and the conda backend installs them from bioconda automatically:
+
+| environment | conda packages | with uv instead |
+|---|---|---|
+| `rasp` | reduce, openmm, pdbfixer | install by hand; RaSP cannot prepare structures without them |
+| `gemme` | openjdk | install a JRE yourself |
+| `huggingface` | foldseek | `bash scripts/install_foldseek.sh` |
+| `evcouplings` | hmmer | needed for `--msa-backend jackhmmer` |
+
+`install-env` prints these and says whether they were installed, so you are
+never left guessing. With uv it warns rather than failing silently.
+
+Conda does not relax the version pins: `requirements.txt` is still installed
+with pip inside the environment, so the resolved versions are the same either
+way.
 
 ## 2. Install
 
@@ -65,7 +99,7 @@ AlphaFold download are all fine.
 ## 4. First real predictor
 
 ```bash
-python -m vepbench install-env esm     # ~3 GB
+python -m vepbench install-env esm     # ~3 GB; add --backend conda if you prefer
 vepbench run --uniprot P26678 --predictors esm2_650m --msa-backend none
 ```
 
@@ -86,7 +120,7 @@ Work outward in order of how likely each is to need attention.
 ```bash
 # Language models: same verified runner, different checkpoints
 python -m vepbench install-env huggingface    # SaProt, ProSST, ProtT5, Ankh
-bash scripts/install_foldseek.sh              # SaProt needs the 3Di alphabet
+bash scripts/install_foldseek.sh              # skip this if you used conda
 
 # Structure-based
 python -m vepbench install-env proteinmpnn    # ProteinMPNN, ThermoMPNN

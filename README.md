@@ -286,14 +286,20 @@ so a change is deliberate rather than accidental.
 
 These tools pin incompatible versions of torch, numpy and transformers, and
 one still targets Python 2.7, so they cannot share an interpreter. Each gets
-its own `uv` environment under `envs/<name>/.venv`, driven over subprocess
-with a JSON job file.
+its own environment under `envs/<name>/.venv`, driven over subprocess with a
+JSON job file.
 
 ```bash
 python -m vepbench install-env esm
-python -m vepbench install-env all --dry-run   # see what each one is first
+python -m vepbench install-env esm --backend conda   # or mamba, micromamba
+python -m vepbench install-env all --dry-run         # see what each one is first
 python -m vepbench status
 ```
+
+uv and conda both work and both produce an environment at the same path. uv
+is preferred when present for speed; conda additionally installs the binaries
+that have no PyPI wheel (foldseek, reduce, openmm, pdbfixer, openjdk, hmmer)
+from bioconda. Set `VEPBENCH_ENV_BACKEND` to fix the choice.
 
 See [`envs/README.md`](envs/README.md) for sizes and hardware notes. FoldX is
 licensed and is not distributed here; set `FOLDX_BINARY` to your own copy.

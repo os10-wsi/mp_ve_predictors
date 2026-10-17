@@ -1,0 +1,2 @@
+# GEMME drives JET2, which is Java.
+openjdk>=11

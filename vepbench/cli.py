@@ -225,18 +225,33 @@ def command_check_conventions(args: argparse.Namespace) -> int:
 
 
 def command_install_env(args: argparse.Namespace) -> int:
-    from vepbench.envs import ENVIRONMENTS, create_env, get_env
+    from vepbench.envs import ENVIRONMENTS, EnvError, create_env, get_env, resolve_backend
+
+    try:
+        backend = resolve_backend(args.backend)
+    except EnvError as exc:
+        raise SystemExit(str(exc)) from exc
 
     names = sorted(ENVIRONMENTS) if args.name == "all" else [args.name]
+    print(f"building environments with {backend}")
     for name in names:
         spec = get_env(name)
         print(f"--- {name}: {spec.description}")
         if spec.notes:
             print(f"    note: {spec.notes}")
+        extra = spec.conda_packages(PATHS)
+        if extra.exists():
+            wanted = [ln.strip() for ln in extra.read_text().splitlines()
+                      if ln.strip() and not ln.startswith("#")]
+            how = "installed from conda" if backend != "uv" else (
+                "NOT installed: uv cannot supply these, use --backend conda"
+            )
+            print(f"    conda packages: {', '.join(wanted)} ({how})")
         if args.dry_run:
             continue
         try:
-            print(f"    installed at {create_env(spec, paths=PATHS, force=args.force)}")
+            venv = create_env(spec, paths=PATHS, force=args.force, backend=backend)
+            print(f"    installed at {venv}")
         except Exception as exc:  # noqa: BLE001
             print(f"    FAILED: {exc}")
     return 0
@@ -366,6 +381,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     install = sub.add_parser("install-env", help="create an isolated predictor environment")
     install.add_argument("name", help="environment name, or 'all'")
+    install.add_argument("--backend", choices=["uv", "conda", "mamba", "micromamba"],
+                         help="how to build the environment (default: uv if present, "
+                              "otherwise micromamba, mamba or conda; or set "
+                              "VEPBENCH_ENV_BACKEND)")
     install.add_argument("--force", action="store_true")
     install.add_argument("--dry-run", action="store_true")
     install.set_defaults(func=command_install_env)

@@ -1,0 +1,3 @@
+# SaProt needs foldseek to build its 3Di structural alphabet. With conda this
+# comes from bioconda; with uv, run scripts/install_foldseek.sh instead.
+foldseek

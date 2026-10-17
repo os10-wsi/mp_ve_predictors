@@ -2,9 +2,27 @@
 
 Many of these tools pin mutually incompatible versions of torch, numpy or
 transformers, and one still targets Python 2.7. They therefore cannot share an
-interpreter. Each environment here is created separately with `uv`, and the
-orchestrator talks to it over a subprocess with a JSON job file. The
-`vepbench` package itself depends only on numpy, pandas and requests.
+interpreter. Each environment here is created separately, and the orchestrator
+talks to it over a subprocess with a JSON job file. The `vepbench` package
+itself depends only on numpy, pandas and requests.
+
+## uv or conda
+
+Both are supported and both produce an environment at `envs/<name>/.venv`.
+uv is chosen automatically when it is on PATH, because it is much faster;
+otherwise micromamba, mamba or conda, in that order. Override per command with
+`--backend`, or globally with `VEPBENCH_ENV_BACKEND`.
+
+Conda uses `--prefix envs/<name>/.venv` rather than a named environment, so
+the interpreter path is identical and nothing downstream changes. Version pins
+are identical too: `requirements.txt` is installed with pip inside the
+environment either way.
+
+Where an environment needs a binary with no PyPI wheel, it lists it in
+`conda-packages.txt`. The conda backend installs those from conda-forge and
+bioconda; uv warns that it cannot and names them. That covers `reduce`,
+`openmm` and `pdbfixer` for RaSP, `openjdk` for GEMME, `foldseek` for SaProt,
+and `hmmer` for the local alignment backend.
 
 ```
 python -m vepbench install-env esm            # one environment
@@ -13,9 +31,9 @@ python -m vepbench install-env all --dry-run  # just print what each one is
 python -m vepbench status                     # which are installed
 ```
 
-Each directory holds `requirements.txt` with pinned dependencies and, where
-pip cannot do the whole job, an `install.sh` that clones repositories or
-builds binaries. Repositories land in `third_party/` and weights in
+Each directory holds `requirements.txt` with pinned dependencies, optionally
+`conda-packages.txt` for things pip cannot supply, and, where neither can do
+the whole job, an `install.sh` that clones repositories or builds binaries. Repositories land in `third_party/` and weights in
 `data/weights/`, both gitignored. Override with `VEPBENCH_THIRD_PARTY` and
 `VEPBENCH_WEIGHTS`, or point at an existing checkout with the per-predictor
 variables such as `PROTEINMPNN_DIR` or `EVE_DIR`.

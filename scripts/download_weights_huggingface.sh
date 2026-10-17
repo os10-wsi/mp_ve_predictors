@@ -11,14 +11,14 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 
 TARGET="${1:-}"
 
-# name:repo:size:environment
+# name:repo:size in GB:environment
 CATALOGUE=(
-  "saprot:westlake-repl/SaProt_650M_AF2:2.6 GB:huggingface"
-  "saprot-1.3b:westlake-repl/SaProt_1.3B_AF2:5 GB:huggingface"
-  "prosst:AI4Protein/ProSST-2048:0.5 GB:huggingface"
-  "prott5:Rostlab/prot_t5_xl_uniref50:11 GB:huggingface"
-  "ankh:ElnaggarLab/ankh-large:7 GB:huggingface"
-  "esm3:EvolutionaryScale/esm3-sm-open-v1:7 GB:esm"
+  "saprot:westlake-repl/SaProt_650M_AF2:2.6:huggingface"
+  "saprot-1.3b:westlake-repl/SaProt_1.3B_AF2:5:huggingface"
+  "prosst:AI4Protein/ProSST-2048:0.5:huggingface"
+  "prott5:Rostlab/prot_t5_xl_uniref50:11:huggingface"
+  "ankh:ElnaggarLab/ankh-large:7:huggingface"
+  "esm3:EvolutionaryScale/esm3-sm-open-v1:7:esm"
 )
 
 usage() {
@@ -27,7 +27,7 @@ usage() {
   echo "available:" >&2
   for entry in "${CATALOGUE[@]}"; do
     IFS=':' read -r name repo size env <<< "$entry"
-    printf '  %-12s %-38s %-8s (env: %s)\n' "$name" "$repo" "$size" "$env" >&2
+    printf '  %-12s %-38s %5s GB (env: %s)\n' "$name" "$repo" "$size" "$env" >&2
   done
   exit 2
 }
@@ -40,16 +40,7 @@ export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 fetch() {
   local name="$1" repo="$2" size="$3" env="$4"
   local py="$REPO_ROOT/envs/$env/.venv/bin/python"
-  if ! require_env "$env" 2>/dev/null; then
-    echo "  skipping $name: environment '$env' is not installed or incomplete" >&2
-    echo "  (python3 -m vepbench install-env $env)" >&2
-    return 0
-  fi
-  if [ "$repo" = "EvolutionaryScale/esm3-sm-open-v1" ] && [ -z "${HF_TOKEN:-}" ]; then
-    echo "  skipping $name: gated, needs HF_TOKEN and the licence accepted" >&2
-    return 0
-  fi
-  echo "--- $name ($repo, $size)"
+  echo "--- $name ($repo, $size GB)"
   "$py" -I -c "
 from huggingface_hub import snapshot_download
 path = snapshot_download(
@@ -60,20 +51,50 @@ print('  cached at', path)
 "
 }
 
+# Decide what is actually fetchable before asking anything. Prompting for a
+# 33 GB download and then skipping every item wastes the answer.
+MATCHED=0
 SELECTED=()
-TOTAL=""
+SKIPPED=()
+TOTAL=0
 for entry in "${CATALOGUE[@]}"; do
   IFS=':' read -r name repo size env <<< "$entry"
-  if [ "$TARGET" = "all" ] || [ "$TARGET" = "$name" ]; then
-    SELECTED+=("$entry")
-    TOTAL="$TOTAL $size,"
+  [ "$TARGET" = "all" ] || [ "$TARGET" = "$name" ] || continue
+  MATCHED=$((MATCHED + 1))
+  if ! require_env "$env" >/dev/null 2>&1; then
+    SKIPPED+=("$name: environment '$env' is not installed or is incomplete -> python3 -m vepbench install-env $env")
+    continue
   fi
+  if [ "$repo" = "EvolutionaryScale/esm3-sm-open-v1" ] && [ -z "${HF_TOKEN:-}" ]; then
+    SKIPPED+=("$name: gated -> accept the licence and export HF_TOKEN")
+    continue
+  fi
+  SELECTED+=("$entry")
+  TOTAL="$(awk -v a="$TOTAL" -v b="$size" 'BEGIN {printf "%.1f", a + b}')"
 done
-[ "${#SELECTED[@]}" -gt 0 ] || usage
+[ "$MATCHED" -gt 0 ] || usage
 
-confirm_download "${TOTAL% ,}" "Hugging Face weights: ${TARGET}" || exit 1
-report_free_space
-echo "Destination: \${HF_HOME:-~/.cache/huggingface}"
+DESTINATION="${HF_HOME:-$HOME/.cache/huggingface}"
+
+if [ "${#SKIPPED[@]}" -gt 0 ]; then
+  echo "Cannot fetch these yet:"
+  for line in "${SKIPPED[@]}"; do echo "  $line"; done
+  echo
+fi
+
+if [ "${#SELECTED[@]}" -eq 0 ]; then
+  echo "Nothing left to download. Resolve the above, then run this again." >&2
+  exit 1
+fi
+
+echo "Ready to fetch ${#SELECTED[@]} of $MATCHED:"
+for entry in "${SELECTED[@]}"; do
+  IFS=':' read -r name repo size env <<< "$entry"
+  printf '  %-12s %-38s %5s GB\n' "$name" "$repo" "$size"
+done
+
+echo "Free space for $DESTINATION: $(free_space_at "$DESTINATION")"
+confirm_download "${TOTAL} GB" "Hugging Face weights: ${TARGET}" "$DESTINATION" || exit 1
 
 for entry in "${SELECTED[@]}"; do
   IFS=':' read -r name repo size env <<< "$entry"
@@ -81,5 +102,5 @@ for entry in "${SELECTED[@]}"; do
 done
 
 echo
-echo "Set HF_HOME before running if you want these somewhere other than the"
-echo "default cache, and set the same value when you run the predictions."
+echo "Weights are under $DESTINATION."
+echo "If you set HF_HOME to put them elsewhere, set the same value when you run."

@@ -18,15 +18,18 @@ export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 case "$TARGET" in
   esm1v)
+    report_free_space
     confirm_download "12.5 GB (five replicates of 2.5 GB)" "ESM-1v ensemble" || exit 1
     MODELS="facebook/esm1v_t33_650M_UR90S_1 facebook/esm1v_t33_650M_UR90S_2 facebook/esm1v_t33_650M_UR90S_3 facebook/esm1v_t33_650M_UR90S_4 facebook/esm1v_t33_650M_UR90S_5" ;;
-  esm2)     confirm_download "2.5 GB" "ESM-2 650M" || exit 1
+  esm2)     report_free_space
+            confirm_download "2.5 GB" "ESM-2 650M" || exit 1
             MODELS="facebook/esm2_t33_650M_UR50D" ;;
-  esm2-3b)  confirm_download "11 GB" "ESM-2 3B" || exit 1
+  esm2-3b)  report_free_space
+            confirm_download "11 GB" "ESM-2 3B" || exit 1
             MODELS="facebook/esm2_t36_3B_UR50D" ;;
   esm-if1)
-    confirm_download "0.5 GB" "ESM-IF1 (from dl.fbaipublicfiles.com)" || exit 1
     report_free_space
+    confirm_download "0.5 GB" "ESM-IF1 (from dl.fbaipublicfiles.com)" || exit 1
     export TORCH_HOME="$WEIGHTS/torch_hub"; mkdir -p "$TORCH_HOME"
     "$PY" -I -c "
 import torch, esm
@@ -38,7 +41,6 @@ print('  cached')
   *) echo "usage: $0 {esm1v|esm2|esm2-3b|esm-if1}" >&2; exit 2 ;;
 esac
 
-report_free_space
 for model in $MODELS; do
   echo "--- $model"
   "$PY" -I -c "

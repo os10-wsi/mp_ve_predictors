@@ -31,14 +31,15 @@ require() {
   command -v "$1" >/dev/null 2>&1 || { echo "error: $1 is required but not on PATH" >&2; exit 1; }
 }
 
-# confirm_download <size> <what>
-# Large downloads never start without saying how big they are. Set
-# VEPBENCH_ASSUME_YES=1 to skip the prompt.
+# confirm_download <size> <what> [destination]
+# Large downloads never start without saying how big they are and where they
+# go. Not everything lands in $WEIGHTS: Hugging Face models go to HF_HOME, so
+# the caller can say where. Set VEPBENCH_ASSUME_YES=1 to skip the prompt.
 confirm_download() {
   echo
   echo "About to download: $2"
   echo "Approximate size:  $1"
-  echo "Destination:       $WEIGHTS"
+  echo "Destination:       ${3:-$WEIGHTS}"
   if [ "${VEPBENCH_ASSUME_YES:-0}" = "1" ]; then
     echo "VEPBENCH_ASSUME_YES is set, continuing."
     return 0
@@ -74,4 +75,15 @@ require_env() {
     return 1
   fi
   return 0
+}
+
+# free_space_at <path>
+# df fails on a path that does not exist yet, which is normal for a cache
+# directory that has never been written to, so walk up to one that does.
+free_space_at() {
+  local path="$1"
+  while [ -n "$path" ] && [ "$path" != "/" ] && [ ! -d "$path" ]; do
+    path="$(dirname "$path")"
+  done
+  df -Ph "${path:-/}" 2>/dev/null | awk 'NR==2 {print $4}'
 }

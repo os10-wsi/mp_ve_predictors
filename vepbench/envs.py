@@ -10,12 +10,14 @@ orchestrator never imports a predictor's dependencies.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -62,8 +64,48 @@ class EnvSpec:
     def install_script(self, paths: Paths = PATHS) -> Path:
         return self.directory(paths) / "install.sh"
 
+    def marker(self, paths: Paths = PATHS) -> Path:
+        """Written only after a complete, successful install.
+
+        The interpreter appears in the very first step, before a single
+        requirement is installed, so its presence proves nothing. An install
+        that dies partway leaves a usable python and a half-filled
+        site-packages, which is worse than no environment at all because
+        everything downstream believes it is ready.
+        """
+        return self.venv(paths) / ".vepbench-install-complete"
+
+    def fingerprint(self, paths: Paths = PATHS) -> str:
+        """Hash of the files that define this environment's contents."""
+        digest = hashlib.sha256()
+        for path in (self.requirements(paths), self.conda_packages(paths)):
+            digest.update(path.read_bytes() if path.exists() else b"")
+        digest.update(self.python.encode())
+        return digest.hexdigest()[:16]
+
+    def installation(self, paths: Paths = PATHS) -> dict | None:
+        """What the completion marker records, or None if there is not one."""
+        marker = self.marker(paths)
+        if not marker.exists():
+            return None
+        try:
+            return json.loads(marker.read_text())
+        except json.JSONDecodeError:
+            return None
+
+    def state(self, paths: Paths = PATHS) -> str:
+        """``missing``, ``incomplete``, ``stale`` or ``ok``."""
+        if not self.interpreter(paths).exists():
+            return "missing"
+        record = self.installation(paths)
+        if record is None:
+            return "incomplete"
+        if record.get("fingerprint") != self.fingerprint(paths):
+            return "stale"
+        return "ok"
+
     def is_installed(self, paths: Paths = PATHS) -> bool:
-        return self.interpreter(paths).exists()
+        return self.state(paths) == "ok"
 
 
 ENVIRONMENTS: dict[str, EnvSpec] = {}
@@ -294,6 +336,7 @@ def create_env(
     venv = spec.venv(paths)
     if venv.exists() and force:
         shutil.rmtree(venv)
+    spec.marker(paths).unlink(missing_ok=True)
 
     if chosen == UV_BACKEND:
         _create_with_uv(spec, paths, venv)
@@ -304,7 +347,66 @@ def create_env(
     if install.exists():
         log.info("running %s", install)
         subprocess.run(["bash", str(install)], check=True, cwd=str(directory))
+
+    verify_env(spec, paths=paths)
+    marker = spec.marker(paths)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({
+        "fingerprint": spec.fingerprint(paths),
+        "backend": chosen,
+        "python": spec.python,
+        "completed": time.time(),
+    }, indent=2))
     return venv
+
+
+# A few imports per environment that prove the install really finished. These
+# are deliberately shallow: enough to catch a pip run that died partway,
+# cheap enough to run on every build.
+VERIFY_IMPORTS: dict[str, tuple[str, ...]] = {
+    "esm": ("torch", "transformers", "huggingface_hub", "filelock"),
+    "esm_if1": ("torch", "esm"),
+    "huggingface": ("torch", "transformers", "huggingface_hub", "filelock"),
+    "proteinmpnn": ("torch", "numpy"),
+    "evcouplings": ("evcouplings", "numpy"),
+    "eve": ("torch", "numpy"),
+    "tranception": ("torch", "transformers"),
+    "rasp": ("torch", "numpy"),
+    "gemme": ("numpy", "Bio"),
+    "vespa": ("torch", "transformers"),
+    "s3f": ("torch", "torch_geometric"),
+    "venusrem": ("torch", "transformers"),
+    "promep": ("torch", "dgl"),
+    "metl": ("torch", "metl"),
+    "stability_dg": ("torch", "transformers", "peft"),
+    "ddmut": ("requests",),
+    "foldx": ("pandas",),
+}
+
+
+def verify_env(spec: EnvSpec, *, paths: Paths = PATHS) -> None:
+    """Check the environment can import what it is supposed to have.
+
+    Raises EnvError naming the missing modules, so a half-finished install is
+    reported at install time rather than hours later inside a runner.
+    """
+    modules = VERIFY_IMPORTS.get(spec.name)
+    if not modules:
+        return
+    interpreter = spec.interpreter(paths)
+    missing = [
+        module for module in modules
+        if subprocess.run([str(interpreter), "-I", "-c", f"import {module}"],
+                          capture_output=True, check=False).returncode != 0
+    ]
+    if missing:
+        raise EnvError(
+            f"environment {spec.name!r} is incomplete: cannot import "
+            f"{', '.join(missing)}. The install did not finish, which on a "
+            f"shared filesystem usually means a dropped connection. Re-run "
+            f"`python -m vepbench install-env {spec.name}` to top it up, or add "
+            f"--force to rebuild from scratch."
+        )
 
 
 @dataclass

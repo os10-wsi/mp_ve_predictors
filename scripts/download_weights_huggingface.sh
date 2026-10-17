@@ -40,9 +40,9 @@ export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 fetch() {
   local name="$1" repo="$2" size="$3" env="$4"
   local py="$REPO_ROOT/envs/$env/.venv/bin/python"
-  if [ ! -x "$py" ]; then
-    echo "  skipping $name: environment '$env' is not installed" >&2
-    echo "  (python -m vepbench install-env $env)" >&2
+  if ! require_env "$env" 2>/dev/null; then
+    echo "  skipping $name: environment '$env' is not installed or incomplete" >&2
+    echo "  (python3 -m vepbench install-env $env)" >&2
     return 0
   fi
   if [ "$repo" = "EvolutionaryScale/esm3-sm-open-v1" ] && [ -z "${HF_TOKEN:-}" ]; then

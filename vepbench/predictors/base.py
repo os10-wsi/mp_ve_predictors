@@ -114,6 +114,18 @@ class Predictor(ABC):
         env = self.env_spec()
         if env is not None and not env.is_installed(paths):
             hint = self.spec.install_hint or f"python -m vepbench install-env {env.name}"
+            state = env.state(paths)
+            if state == "incomplete":
+                return Availability(False, (
+                    f"environment {env.name!r} exists but its install did not finish, "
+                    f"so some dependencies are missing. Re-run "
+                    f"`python -m vepbench install-env {env.name}`."
+                ))
+            if state == "stale":
+                return Availability(False, (
+                    f"environment {env.name!r} was built from different requirements. "
+                    f"Re-run `python -m vepbench install-env {env.name}`."
+                ))
             return Availability(False, f"environment {env.name!r} is not installed ({hint})")
         return self._extra_availability(protein, paths=paths)
 

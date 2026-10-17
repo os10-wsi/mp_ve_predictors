@@ -141,3 +141,100 @@ def test_uv_build_warns_about_conda_only_packages(monkeypatch, tmp_path, caplog)
         create_env(spec, paths=paths, backend="uv")
     assert "foldseek" in caplog.text
     assert "--backend conda" in caplog.text
+
+
+# --- a half-finished install must not look finished ------------------------
+
+def _definition(tmp_path, name="demo", requirements="numpy\n"):
+    from vepbench.config import Paths
+
+    paths = Paths(root=tmp_path)
+    directory = paths.envs / name
+    directory.mkdir(parents=True)
+    (directory / "requirements.txt").write_text(requirements)
+    return paths, get_env("esm").__class__(name=name, python="3.11", description="t")
+
+
+def test_an_interpreter_alone_is_not_an_install(tmp_path):
+    """uv creates bin/python before installing anything, so it proves nothing."""
+    paths, spec = _definition(tmp_path)
+    assert spec.state(paths) == "missing"
+
+    interpreter = spec.interpreter(paths)
+    interpreter.parent.mkdir(parents=True)
+    interpreter.touch()
+    assert spec.state(paths) == "incomplete"
+    assert not spec.is_installed(paths)
+
+
+def test_the_marker_makes_it_complete(tmp_path):
+    import json
+
+    paths, spec = _definition(tmp_path)
+    interpreter = spec.interpreter(paths)
+    interpreter.parent.mkdir(parents=True)
+    interpreter.touch()
+    spec.marker(paths).write_text(json.dumps({"fingerprint": spec.fingerprint(paths)}))
+    assert spec.state(paths) == "ok"
+    assert spec.is_installed(paths)
+
+
+def test_changed_requirements_make_it_stale(tmp_path):
+    import json
+
+    paths, spec = _definition(tmp_path)
+    interpreter = spec.interpreter(paths)
+    interpreter.parent.mkdir(parents=True)
+    interpreter.touch()
+    spec.marker(paths).write_text(json.dumps({"fingerprint": spec.fingerprint(paths)}))
+    assert spec.state(paths) == "ok"
+
+    spec.requirements(paths).write_text("numpy\npandas\n")
+    assert spec.state(paths) == "stale"
+    assert not spec.is_installed(paths)
+
+
+def test_verification_names_what_is_missing(tmp_path, monkeypatch):
+    from vepbench.envs import verify_env
+
+    paths, _spec = _definition(tmp_path)
+    spec = get_env("esm").__class__(name="esm", python="3.11", description="t")
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda cmd, **kw: type("R", (), {"returncode": 0 if "torch" in cmd[-1] else 1})(),
+    )
+    with pytest.raises(EnvError) as caught:
+        verify_env(spec, paths=paths)
+    message = str(caught.value)
+    assert "filelock" in message            # the module the cluster was missing
+    assert "install-env esm" in message     # and how to fix it
+
+
+def test_every_heavyweight_environment_is_verified():
+    """An environment with no import check could fail silently."""
+    from vepbench.envs import VERIFY_IMPORTS
+
+    unchecked = sorted(set(ENVIRONMENTS) - set(VERIFY_IMPORTS) - {"deepsequence"})
+    assert unchecked == [], f"these have no verification: {unchecked}"
+
+
+def test_an_incomplete_environment_makes_predictors_unavailable(tmp_path, monkeypatch):
+    """The failure the cluster hit: it must be reported, not hit at run time."""
+    from vepbench.config import Paths
+    from vepbench.predictors import REGISTRY
+    from vepbench.protein import ProteinContext
+    from vepbench.uniprot import UniProtRecord
+
+    paths = Paths(root=tmp_path)
+    spec = get_env("esm")
+    interpreter = spec.interpreter(paths)
+    interpreter.parent.mkdir(parents=True)
+    interpreter.touch()                      # python present, marker absent
+
+    protein = ProteinContext(
+        uniprot=UniProtRecord(uniprot_id="P1", sequence="MKVLA"), work_dir=tmp_path
+    )
+    availability = REGISTRY["esm2_650m"].availability(protein, paths=paths)
+    assert not availability.available
+    assert "did not finish" in availability.reason
+    assert "install-env esm" in availability.reason

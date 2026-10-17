@@ -96,9 +96,23 @@ else
   ENVS=(esm esm_if1 huggingface proteinmpnn evcouplings gemme vespa metl
         rasp eve tranception s3f venusrem promep stability_dg ddmut foldx)
 fi
+ENV_FAILED=()
 for env in "${ENVS[@]}"; do
-  run python3 -m vepbench install-env "$env" "${BACKEND_FLAG[@]}"
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "+ python3 -m vepbench install-env $env ${BACKEND_FLAG[*]}"
+  elif ! python3 -m vepbench install-env "$env" "${BACKEND_FLAG[@]}"; then
+    ENV_FAILED+=("$env")
+  fi
 done
+if [ "${#ENV_FAILED[@]}" -gt 0 ]; then
+  echo
+  echo "These environments did not install: ${ENV_FAILED[*]}"
+  echo "Their predictors will report as unavailable rather than give wrong"
+  echo "answers, so the rest of this is still worth doing. Fix them later with:"
+  for env in "${ENV_FAILED[@]}"; do
+    echo "  python3 -m vepbench install-env $env"
+  done
+fi
 
 step "3. supporting binaries"
 if [ -n "$BACKEND" ] && [ "$BACKEND" != "uv" ]; then

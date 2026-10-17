@@ -10,7 +10,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 
 TARGET="${1:-}"
 PY="$REPO_ROOT/envs/esm/.venv/bin/python"
-[ -x "$PY" ] || { echo "run: python -m vepbench install-env esm" >&2; exit 1; }
+require_env esm || exit 1
 
 # Hugging Face serves large files through its Xet CDN by default; some
 # networks allow huggingface.co but block that CDN.

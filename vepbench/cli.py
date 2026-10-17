@@ -255,12 +255,27 @@ def command_status(args: argparse.Namespace) -> int:
             print(line)
         return 0
 
-    print(f"{'environment':16s} {'installed':10s} predictors")
-    print("-" * 70)
+    explanation = {
+        "ok": "ready",
+        "missing": "not installed",
+        "incomplete": "INCOMPLETE - install did not finish",
+        "stale": "stale - requirements changed since it was built",
+    }
+    print(f"{'environment':16s} {'state':44s} predictors")
+    print("-" * 100)
+    needs_attention = []
     for name, spec in sorted(ENVIRONMENTS.items()):
         members = sorted(n for n, p in REGISTRY.items() if p.spec.env == name)
-        installed = "yes" if spec.is_installed(PATHS) else "no"
-        print(f"{name:16s} {installed:10s} {', '.join(members) if members else '-'}")
+        state = spec.state(PATHS)
+        if state in ("incomplete", "stale"):
+            needs_attention.append(name)
+        print(f"{name:16s} {explanation[state]:44s} "
+              f"{', '.join(members) if members else '-'}")
+    if needs_attention:
+        print(f"\nRe-run: python -m vepbench install-env "
+              f"{' '.join(needs_attention) if len(needs_attention) == 1 else '<name>'}")
+        for name in needs_attention:
+            print(f"  python -m vepbench install-env {name}")
     return 0
 
 
@@ -307,6 +322,7 @@ def command_install_env(args: argparse.Namespace) -> int:
 
     names = sorted(ENVIRONMENTS) if args.name == "all" else [args.name]
     print(f"building environments with {backend}")
+    failed: list[str] = []
     for name in names:
         spec = get_env(name)
         print(f"--- {name}: {spec.description}")
@@ -320,13 +336,27 @@ def command_install_env(args: argparse.Namespace) -> int:
                 "NOT installed: uv cannot supply these, use --backend conda"
             )
             print(f"    conda packages: {', '.join(wanted)} ({how})")
+        state = spec.state(PATHS)
+        if state == "ok" and not args.force:
+            print("    already installed and verified")
+            continue
+        if state == "incomplete":
+            print("    previous install did not finish; topping it up")
+        elif state == "stale":
+            print("    requirements changed since it was built; updating")
         if args.dry_run:
             continue
         try:
             venv = create_env(spec, paths=PATHS, force=args.force, backend=backend)
-            print(f"    installed at {venv}")
+            print(f"    installed and verified at {venv}")
         except Exception as exc:  # noqa: BLE001
             print(f"    FAILED: {exc}")
+            failed.append(name)
+    if failed:
+        print(f"\n{len(failed)} environment(s) failed: {', '.join(failed)}")
+        print("Nothing downstream will use them; they report as unavailable "
+              "rather than producing wrong answers.")
+        return 1
     return 0
 
 

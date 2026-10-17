@@ -54,3 +54,24 @@ confirm_download() {
 report_free_space() {
   echo "Free space at $WEIGHTS: $(df -Ph "$WEIGHTS" | awk 'NR==2 {print $4}')"
 }
+
+# require_env <name>
+# Refuse to use an environment that is absent or half-built. The interpreter
+# appears in the first step of an install, before any requirement, so its
+# presence alone proves nothing; the marker is written only on success.
+require_env() {
+  local name="$1"
+  local venv="$REPO_ROOT/envs/$name/.venv"
+  if [ ! -x "$venv/bin/python" ]; then
+    echo "environment '$name' is not installed. Run:" >&2
+    echo "  python3 -m vepbench install-env $name" >&2
+    return 1
+  fi
+  if [ ! -f "$venv/.vepbench-install-complete" ]; then
+    echo "environment '$name' exists but its install did not finish, so some" >&2
+    echo "dependencies are missing. Run:" >&2
+    echo "  python3 -m vepbench install-env $name" >&2
+    return 1
+  fi
+  return 0
+}

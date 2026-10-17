@@ -308,12 +308,30 @@ vepbench status --uniprot Q9NRX5
 |---|---|
 | `build backend is missing the 'build_editable' hook` | old pip or setuptools; see below |
 | `environment 'x' is not installed` | `python -m vepbench install-env x` |
+| `install did not finish` / `No module named 'filelock'` | `python -m vepbench install-env x` tops it up |
 | ESM-IF1 wants torch-scatter | `bash envs/esm_if1/install.sh`, needs `data.pyg.org` |
 | SaProt cannot find foldseek | `bash scripts/install_foldseek.sh`, then add it to PATH |
 | gated model 401 | `export HF_TOKEN=...` and accept the licence on the model page |
 | CUDA out of memory | `--dtype float16`, a smaller `--batch-size`, or `--device cpu` |
 | a weight download stalls | `export HF_HUB_DISABLE_XET=1` is already set for runners |
 | an upstream repo moved | the runner prints the upstream error; the install script names the repo |
+
+### If an environment half-installed
+
+`vepbench status` reports one of four states per environment: ready, not
+installed, **incomplete** (the install started but did not finish) or
+**stale** (the requirements changed since it was built). Re-running
+`install-env` fixes the last two; it tops up what is missing rather than
+rebuilding, and `--force` rebuilds from scratch.
+
+An incomplete environment is the nastiest failure mode on a shared
+filesystem, because the interpreter is created in the first step, before a
+single requirement is installed. A pip run that dies partway, which on lustre
+usually means a dropped connection, leaves a working `python` and a
+half-filled `site-packages`. Every install finishes by importing a few key
+modules and only then writes a completion marker, so this is caught at
+install time instead of surfacing hours later as `No module named 'filelock'`
+inside a weight download or a runner.
 
 ### If the editable install is refused
 

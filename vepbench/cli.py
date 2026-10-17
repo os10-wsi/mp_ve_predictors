@@ -102,6 +102,51 @@ def command_run(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def command_doctor(args: argparse.Namespace) -> int:
+    """Report whether everything needed for a run is actually in place."""
+    from vepbench.readiness import MISSING, OK, WARNING, assess
+
+    try:
+        result = assess(args.predictors, msa_backend=args.msa_backend,
+                        features=args.features, paths=PATHS)
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        return 2
+
+    groups = {OK: "ready", WARNING: "warnings", MISSING: "missing"}
+    for status in (MISSING, WARNING, OK):
+        selected = [c for c in result.checks if c.status == status]
+        if not selected or (status == OK and not args.verbose):
+            continue
+        print(f"\n--- {groups[status]} ---")
+        for check in selected:
+            print(f"  {check.symbol:8s} {check.name}: {check.detail}")
+            if check.fix:
+                print(f"           -> {check.fix}")
+
+    print(f"\n{len(result.ready)} predictor(s) ready to run")
+    if result.ready:
+        print("  " + ", ".join(result.ready))
+
+    if result.needs_download:
+        print(f"\n{len(result.needs_download)} installed but will download weights "
+              f"on first use (so they need a network, and will fail under --offline):")
+        for name, repos in sorted(result.needs_download.items()):
+            print(f"  {name:28s} {', '.join(repos)}")
+        print("  fetch them ahead of time: bash scripts/download_weights_huggingface.sh all")
+
+    if result.blocked:
+        print(f"\n{len(result.blocked)} blocked:")
+        for name, reason in sorted(result.blocked.items()):
+            print(f"  {name:28s} {reason[:110]}")
+
+    if result.problems:
+        print(f"\n{len(result.problems)} thing(s) need attention before a full run.")
+        return 1
+    print("\nEverything requested is in place.")
+    return 0
+
+
 def command_prefetch(args: argparse.Namespace) -> int:
     """Download and cache every input a later run will need.
 
@@ -454,6 +499,20 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--offline", action="store_true",
                      help="use only cached inputs; never reach the network")
     run.set_defaults(func=command_run)
+
+    doctor = sub.add_parser(
+        "doctor",
+        help="check environments, weights, binaries and credentials before a run",
+    )
+    doctor.add_argument("--predictors", nargs="+", default=["all"],
+                        help="only check what these need")
+    doctor.add_argument("--msa-backend", default="colabfold",
+                        choices=["colabfold", "ebi", "jackhmmer", "hhblits", "none"])
+    doctor.add_argument("--features", nargs="+",
+                        help="also check what these features need")
+    # -v/--verbose is inherited from the shared parent parser; passing it
+    # also lists the checks that already pass, not just the failures.
+    doctor.set_defaults(func=command_doctor)
 
     prefetch = sub.add_parser(
         "prefetch",

@@ -136,6 +136,47 @@ Each states its size and asks before downloading; `VEPBENCH_ASSUME_YES=1`
 skips the prompt. Hugging Face weights land in `HF_HOME`, so set that if you
 want them somewhere specific, and set the same value when you run.
 
+## 3c. Check before you run
+
+Every install step above can half-succeed. Before committing a batch to a
+queue, ask what is actually in place:
+
+```bash
+python -m vepbench doctor                                   # everything
+python -m vepbench doctor --predictors esm2_650m saprot     # just these
+python -m vepbench doctor --predictors esm2_650m -v         # also list what passes
+python -m vepbench doctor --msa-backend jackhmmer           # include the local backend
+python -m vepbench doctor --features secondary_structure    # include what features need
+```
+
+It checks the environment backend, each environment the request needs, the
+Hugging Face cache, external binaries (foldseek, java, jackhmmer, mkdssp,
+docker, FoldX), credentials and free disk, then asks each predictor the same
+availability question the runner asks, so the two cannot drift apart. Each
+failure is printed with the command that fixes it. Nothing is downloaded or
+installed, so it is safe to run repeatedly on a login node.
+
+Predictors land in one of three groups:
+
+| group | meaning |
+|---|---|
+| ready | will run now, with or without a network |
+| will download weights on first use | installed, but the checkpoint is not cached, so `--offline` would fail |
+| blocked | something is missing; the reason names it |
+
+Exit status is 0 when nothing is missing, 1 when something is, 2 for a
+mistyped predictor name — so it can gate a submission script:
+
+```bash
+python -m vepbench doctor --predictors esm2_650m gemme || exit 1
+```
+
+Warnings do not fail it. The common one is weights left in the old
+`~/.cache/huggingface`: runs set `HF_HOME` to `data/weights/huggingface`, so
+anything still in the home cache is invisible to them and would be fetched
+again. `doctor` prints a `mv` for it rather than an `rm`, because that is
+often the only copy.
+
 ## 4. First real predictor
 
 ```bash
@@ -302,6 +343,13 @@ with a reason, or `failed` with its traceback, all recorded in `status.json`:
 
 ```bash
 vepbench status --uniprot Q9NRX5
+```
+
+Most failures are install-time rather than run-time, so start with the
+pre-flight check (section 3c), which names the fix for each:
+
+```bash
+python -m vepbench doctor --predictors <the ones you asked for>
 ```
 
 | symptom | fix |

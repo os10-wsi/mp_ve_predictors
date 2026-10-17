@@ -82,6 +82,52 @@ def test_shared_flags_work_after_the_subcommand(capsys):
     assert main(["list", "-q"]) == 0
 
 
+@pytest.fixture
+def bare_checkout(tmp_path, monkeypatch):
+    """A tree with nothing installed in it.
+
+    `doctor` reads `envs/` under the project root, so without this the result
+    would depend on which environments the developer happens to have built.
+    """
+    monkeypatch.setenv("VEPBENCH_ROOT", str(tmp_path))
+    monkeypatch.setenv("VEPBENCH_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("VEPBENCH_OUTPUTS", str(tmp_path / "outputs"))
+    monkeypatch.setenv("VEPBENCH_WEIGHTS", str(tmp_path / "weights"))
+
+    from vepbench import config
+    importlib.reload(config)
+    from vepbench import cli
+    importlib.reload(cli)
+    yield cli
+    importlib.reload(config)
+    importlib.reload(cli)
+
+
+def test_doctor_reports_a_missing_environment(bare_checkout, capsys):
+    assert bare_checkout.main(["doctor", "--predictors", "esm2_650m"]) == 1
+    out = capsys.readouterr().out
+    assert "environment esm" in out
+    assert "install-env esm" in out
+
+
+def test_doctor_is_happy_when_nothing_is_needed(bare_checkout, capsys):
+    """The baselines ship ready; doctor must not invent work for them."""
+    assert bare_checkout.main(["doctor", "--predictors", "blosum62_baseline"]) == 0
+    assert "blosum62_baseline" in capsys.readouterr().out
+
+
+def test_doctor_lists_passing_checks_only_when_asked(bare_checkout, capsys):
+    bare_checkout.main(["doctor", "--predictors", "blosum62_baseline"])
+    assert "environment backend" not in capsys.readouterr().out
+    bare_checkout.main(["doctor", "--predictors", "blosum62_baseline", "-v"])
+    assert "environment backend" in capsys.readouterr().out
+
+
+def test_doctor_rejects_an_unknown_predictor(bare_checkout, capsys):
+    assert bare_checkout.main(["doctor", "--predictors", "blosum62"]) == 2
+    assert "unknown predictors" in capsys.readouterr().out
+
+
 def test_run_merge_benchmark_end_to_end(workspace):
     tmp_path, cli = workspace
     structure = str(FIXTURES / f"{ACCESSION}_synthetic_helix_TESTONLY.pdb")

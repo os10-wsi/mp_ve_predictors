@@ -24,6 +24,8 @@ python -m vepbench status          # which environments are installed
 
 python -m vepbench install-env esm # one environment (see envs/README.md)
 
+python -m vepbench doctor          # is everything installed and downloaded?
+
 # one protein, one predictor
 python -m vepbench run --uniprot P26678 --predictors esm2_650m
 

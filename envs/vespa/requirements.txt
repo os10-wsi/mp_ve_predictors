@@ -1,0 +1,7 @@
+# VESPA from the Rost lab.
+torch==2.14.1
+numpy>=1.26,<3
+pandas>=2.2
+transformers>=4.44,<6
+sentencepiece>=0.2
+vespa-effect==1.0.1

@@ -17,7 +17,11 @@ import requests
 from vepbench import HTTP_HEADERS
 from vepbench.config import PATHS, Paths
 from vepbench.constants import (
-    DEFAULT_VDW_RADIUS, MAX_ASA_TIEN, THREE_TO_ONE, VDW_RADII, WATER_PROBE_RADIUS,
+    DEFAULT_VDW_RADIUS,
+    MAX_ASA_TIEN,
+    THREE_TO_ONE,
+    VDW_RADII,
+    WATER_PROBE_RADIUS,
 )
 
 log = logging.getLogger(__name__)

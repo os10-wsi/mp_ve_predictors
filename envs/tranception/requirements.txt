@@ -1,0 +1,8 @@
+# Tranception and TranceptEVE.
+torch==2.0.1
+numpy==1.24.4
+pandas==2.0.3
+transformers==4.31.0
+tokenizers>=0.13,<0.14
+scipy==1.10.1
+tqdm>=4.66

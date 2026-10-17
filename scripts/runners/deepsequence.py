@@ -17,8 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _repo_driver import write_variant_list  # noqa: E402
-from _runner_common import fail, parse_job, read_variants, write_meta, write_scores  # noqa: E402
+from _repo_driver import write_variant_list
+from _runner_common import fail, parse_job, read_variants, write_meta, write_scores
 
 IMAGE = "vepbench-deepsequence"
 

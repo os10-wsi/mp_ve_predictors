@@ -16,7 +16,11 @@ from pathlib import Path
 import pandas as pd
 
 from vepbench.constants import (
-    KD_HYDROPATHY, RESIDUE_CHARGE, RESIDUE_VOLUME, blosum62, grantham_distance,
+    KD_HYDROPATHY,
+    RESIDUE_CHARGE,
+    RESIDUE_VOLUME,
+    blosum62,
+    grantham_distance,
 )
 from vepbench.msa import per_position_entropy, per_position_gap_fraction, read_alignment
 from vepbench.protein import ProteinContext

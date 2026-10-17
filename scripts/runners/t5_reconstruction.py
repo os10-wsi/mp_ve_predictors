@@ -20,9 +20,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _runner_common import (  # noqa: E402
-    default_batch_size, describe_hardware, fail, hf_cache_note, parse_job, pick_device,
-    pick_dtype, read_variants, report_oom_hint, write_meta, write_scores,
+from _runner_common import (
+    default_batch_size,
+    describe_hardware,
+    fail,
+    hf_cache_note,
+    parse_job,
+    pick_device,
+    pick_dtype,
+    read_variants,
+    report_oom_hint,
+    write_meta,
+    write_scores,
 )
 
 

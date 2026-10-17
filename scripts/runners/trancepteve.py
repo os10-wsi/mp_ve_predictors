@@ -13,9 +13,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _repo_driver import run_command, write_variant_list  # noqa: E402
-from _runner_common import describe_hardware, fail, parse_job, pick_device, read_variants, write_meta, write_scores  # noqa: E402
-from _third_party import repo_path  # noqa: E402
+from _repo_driver import run_command, write_variant_list
+from _runner_common import (
+    describe_hardware,
+    fail,
+    parse_job,
+    pick_device,
+    read_variants,
+    write_meta,
+    write_scores,
+)
+from _third_party import repo_path
 
 
 def main() -> int:
@@ -24,9 +32,8 @@ def main() -> int:
     variants = read_variants(job)
     work_dir = Path(job["work_dir"])
     device = pick_device(options)
-    retrieval = bool(options.get("retrieval", True))
 
-    if True and not job.get("msa_path"):
+    if not job.get("msa_path"):
         fail("TranceptEVE needs an MSA")
 
     eve_models = Path(job["weights_dir"]) / "eve" / job["uniprot_id"]

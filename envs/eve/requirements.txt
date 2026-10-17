@@ -1,0 +1,8 @@
+# EVE and popEVE. Upstream pins an old torch; this will pull its own CUDA
+# runtime, which may not match a very new driver.
+torch==2.0.1
+numpy==1.24.4
+pandas==2.0.3
+scikit-learn==1.3.2
+tqdm>=4.66
+matplotlib>=3.7

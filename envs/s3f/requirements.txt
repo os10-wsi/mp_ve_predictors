@@ -1,0 +1,7 @@
+# S3F needs torch-geometric and torchdrug.
+torch==2.4.1
+numpy==1.26.4
+pandas==2.2.3
+torch-geometric==2.6.1
+torchdrug==0.2.1
+biotite==0.41.2

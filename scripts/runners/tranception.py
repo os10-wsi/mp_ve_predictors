@@ -13,9 +13,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _repo_driver import run_command, write_variant_list  # noqa: E402
-from _runner_common import describe_hardware, fail, parse_job, pick_device, read_variants, write_meta, write_scores  # noqa: E402
-from _third_party import repo_path  # noqa: E402
+from _repo_driver import run_command, write_variant_list
+from _runner_common import (
+    describe_hardware,
+    fail,
+    parse_job,
+    pick_device,
+    read_variants,
+    write_meta,
+    write_scores,
+)
+from _third_party import repo_path
 
 
 def main() -> int:

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Shared helpers for the install scripts.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+THIRD_PARTY="${VEPBENCH_THIRD_PARTY:-$REPO_ROOT/third_party}"
+WEIGHTS="${VEPBENCH_WEIGHTS:-$REPO_ROOT/data/weights}"
+mkdir -p "$THIRD_PARTY" "$WEIGHTS"
+
+clone_repo() {
+  local url="$1" name="$2" ref="${3:-}"
+  local target="$THIRD_PARTY/$name"
+  if [ -d "$target/.git" ]; then
+    echo "  $name already cloned at $target"
+  else
+    echo "  cloning $url"
+    git clone --depth 1 ${ref:+--branch "$ref"} "$url" "$target"
+  fi
+  echo "  pinned at $(git -C "$target" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+}
+
+# Record exactly what was installed, so a run can be reproduced.
+record_provenance() {
+  local name="$1" target="$THIRD_PARTY/$1"
+  printf '%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$name" "$target" \
+    "$(git -C "$target" rev-parse HEAD 2>/dev/null || echo unknown)" \
+    >> "$WEIGHTS/provenance.tsv"
+}
+
+require() {
+  command -v "$1" >/dev/null 2>&1 || { echo "error: $1 is required but not on PATH" >&2; exit 1; }
+}
+
+# confirm_download <size> <what>
+# Large downloads never start without saying how big they are. Set
+# VEPBENCH_ASSUME_YES=1 to skip the prompt.
+confirm_download() {
+  echo
+  echo "About to download: $2"
+  echo "Approximate size:  $1"
+  echo "Destination:       $WEIGHTS"
+  if [ "${VEPBENCH_ASSUME_YES:-0}" = "1" ]; then
+    echo "VEPBENCH_ASSUME_YES is set, continuing."
+    return 0
+  fi
+  if [ ! -t 0 ]; then
+    echo "Not interactive and VEPBENCH_ASSUME_YES is not set; stopping." >&2
+    return 1
+  fi
+  read -r -p "Continue? [y/N] " answer
+  case "$answer" in [yY]|[yY][eE][sS]) return 0 ;; *) echo "Stopped."; return 1 ;; esac
+}
+
+report_free_space() {
+  echo "Free space at $WEIGHTS: $(df -Ph "$WEIGHTS" | awk 'NR==2 {print $4}')"
+}

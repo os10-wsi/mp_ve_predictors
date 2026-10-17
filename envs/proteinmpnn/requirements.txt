@@ -1,0 +1,6 @@
+# ProteinMPNN and ThermoMPNN share the ProteinMPNN feature code.
+torch==2.14.1
+numpy>=1.26,<3
+pandas>=2.2
+pytorch-lightning>=2.4
+omegaconf>=2.3

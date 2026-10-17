@@ -14,7 +14,10 @@ from __future__ import annotations
 import os
 
 from vepbench.predictors.base import (
-    Availability, PredictorSpec, SubprocessPredictor, register,
+    Availability,
+    PredictorSpec,
+    SubprocessPredictor,
+    register,
 )
 from vepbench.protein import ProteinContext
 from vepbench.schema import MORE_DELETERIOUS, MORE_TOLERATED, ScoreConvention

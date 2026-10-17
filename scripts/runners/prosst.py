@@ -14,11 +14,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _runner_common import (  # noqa: E402
-    describe_hardware, fail, hf_cache_note, parse_job, pick_device, read_variants,
-    write_meta, write_scores,
+from _runner_common import (
+    describe_hardware,
+    fail,
+    hf_cache_note,
+    parse_job,
+    pick_device,
+    read_variants,
+    write_meta,
+    write_scores,
 )
-from _third_party import add_to_path, repo_path  # noqa: E402
+from _third_party import add_to_path, repo_path
 
 
 def main() -> int:

@@ -1,0 +1,13 @@
+# ESM-1v and ESM-2 through transformers; ESM-IF1 through fair-esm; ESM C and
+# ESM3 through the EvolutionaryScale esm package.
+torch==2.14.1
+numpy>=1.26,<3
+pandas>=2.2
+transformers>=4.44,<6
+huggingface_hub>=0.25
+fair-esm==2.0.0
+esm==3.1.1
+biotite>=0.41
+# ESM-IF1 only. These must match the installed torch; if the wheels fail, see
+# install.sh for the PyG index command.
+torch-geometric>=2.6

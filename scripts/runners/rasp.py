@@ -8,9 +8,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _repo_driver import read_score_table, rows_from_lookup, run_command, write_variant_list  # noqa: E402
-from _runner_common import describe_hardware, fail, parse_job, pick_device, read_variants, write_meta, write_scores  # noqa: E402
-from _third_party import repo_path  # noqa: E402
+from _repo_driver import (
+    read_score_table,
+    rows_from_lookup,
+    run_command,
+)
+from _runner_common import (
+    describe_hardware,
+    fail,
+    parse_job,
+    pick_device,
+    read_variants,
+    write_meta,
+    write_scores,
+)
+from _third_party import repo_path
 
 
 def main() -> int:
@@ -34,7 +46,7 @@ def main() -> int:
             )
         entry = candidates[0]
 
-    variant_file = write_variant_list(work_dir / "variants.csv", variants, style="csv")
+    # RaSP scans every position itself, so no variant list is written.
     output = work_dir / "rasp_scores.csv"
     command = [sys.executable, "-I", str(entry)] + ["--pdb", job["structure_path"], "--chain", job.get("structure_chain") or "A", "--output", str(output)]
     run_command(command, cwd=repo, label="RaSP run_pipeline")

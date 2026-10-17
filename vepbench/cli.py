@@ -80,7 +80,7 @@ def command_run(args: argparse.Namespace) -> int:
         print(f"\n=== {uniprot_id} ===")
         try:
             result = run_protein(uniprot_id, config)
-        except Exception as exc:  # noqa: BLE001 - one protein must not stop the rest
+        except Exception as exc:
             log.error("%s failed entirely: %s", uniprot_id, exc)
             if args.verbose > 0:
                 raise
@@ -244,7 +244,9 @@ def command_install_env(args: argparse.Namespace) -> int:
 
 def command_benchmark(args: argparse.Namespace) -> int:
     from vepbench.benchmark import (
-        HIGHER_IS_MORE_DAMAGING, HIGHER_IS_MORE_FUNCTIONAL, evaluate_by_group,
+        HIGHER_IS_MORE_DAMAGING,
+        HIGHER_IS_MORE_FUNCTIONAL,
+        evaluate_by_group,
         plot_summary,
     )
     from vepbench.merge import load_table

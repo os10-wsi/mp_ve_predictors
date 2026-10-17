@@ -29,10 +29,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _runner_common import (  # noqa: E402
-    apply_domain_window, default_batch_size, describe_hardware, fail, hf_cache_note,
-    parse_job, pick_device, pick_dtype, read_variants, report_oom_hint, write_meta,
-    write_scores, window_for_position,
+from _runner_common import (
+    apply_domain_window,
+    default_batch_size,
+    describe_hardware,
+    fail,
+    hf_cache_note,
+    parse_job,
+    pick_device,
+    pick_dtype,
+    read_variants,
+    report_oom_hint,
+    window_for_position,
+    write_meta,
+    write_scores,
 )
 
 # fair-esm and the Hugging Face ports share a 1024-token positional embedding,

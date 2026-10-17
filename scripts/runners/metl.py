@@ -15,8 +15,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _runner_common import (  # noqa: E402
-    describe_hardware, fail, parse_job, pick_device, read_variants, write_meta,
+from _runner_common import (
+    describe_hardware,
+    fail,
+    parse_job,
+    pick_device,
+    read_variants,
+    write_meta,
     write_scores,
 )
 

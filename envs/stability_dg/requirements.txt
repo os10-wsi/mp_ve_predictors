@@ -1,0 +1,7 @@
+# SaProt-dG and ESM3-dG (absolute-stability-predictor).
+torch==2.14.1
+numpy>=1.26,<3
+pandas>=2.2
+transformers>=4.44,<6
+peft>=0.13
+esm==3.1.1

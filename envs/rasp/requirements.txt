@@ -1,0 +1,5 @@
+# RaSP.
+torch==2.0.1
+numpy==1.24.4
+pandas==2.0.3
+biopython==1.81

@@ -1,0 +1,4 @@
+# GEMME drives JET2, which is Java, so the Python needs are light.
+numpy>=1.26,<3
+pandas>=2.2
+biopython>=1.84

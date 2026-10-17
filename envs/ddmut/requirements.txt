@@ -1,0 +1,3 @@
+# DDMut is a web service; the client needs almost nothing.
+requests>=2.32
+pandas>=2.2

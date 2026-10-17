@@ -1,0 +1,37 @@
+{
+  "uniprot_id": "P26678",
+  "entry_name": "PPLA_HUMAN",
+  "protein_name": "Phospholamban",
+  "organism": "Homo sapiens",
+  "sequence": "MEKVQYLTRSAIRRASTIEMPQQARQKLQNLFINFCLILICLLLICIIVMLL",
+  "sequence_length": 52,
+  "sequence_version": null,
+  "sequence_checksum": "0766304A76A854D3",
+  "features": [
+    {
+      "kind": "topology",
+      "description": "Cytoplasmic",
+      "start": 1,
+      "end": 31
+    },
+    {
+      "kind": "transmembrane",
+      "description": "Helical",
+      "start": 32,
+      "end": 52
+    },
+    {
+      "kind": "region",
+      "description": "Involved in HAX1 binding",
+      "start": 16,
+      "end": 22
+    }
+  ],
+  "is_membrane_protein": true,
+  "transmembrane_segments": [
+    [
+      32,
+      52
+    ]
+  ]
+}

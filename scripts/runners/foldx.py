@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _runner_common import fail, parse_job, read_variants, write_meta, write_scores  # noqa: E402
+from _runner_common import fail, parse_job, read_variants, write_meta, write_scores
 
 
 def run_foldx(binary: str, arguments: list[str], cwd: Path):

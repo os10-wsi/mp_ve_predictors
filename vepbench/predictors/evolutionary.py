@@ -61,7 +61,8 @@ register(SubprocessPredictor(
         ),
         citation="Orenbuch R et al. popEVE. Marks lab, 2023 preprint",
         repo_url="https://github.com/debbiemarkslab/popEVE", license="MIT",
-        requires=frozenset({"sequence", "msa"}), gpu_required=True, env="eve",
+        requires=frozenset({"sequence", "msa"}), gpu_required=True,
+        approximate_vram_gb=4.0, env="eve",
         model_version="popEVE (ESM-1v + EVE Gaussian process)",
         notes="Proteome-wide precomputed scores exist for human proteins and are used "
               "when available. A local run needs both EVE and ESM-1v scores first.",
@@ -159,7 +160,8 @@ register(SubprocessPredictor(
                  "2018;15:816-822",
         repo_url="https://github.com/debbiemarkslab/DeepSequence", license="MIT",
         requires=frozenset({"sequence", "msa"}), gpu_recommended=True,
-        env="deepsequence", model_version="DeepSequence VAE, 2000 ELBO samples",
+        approximate_vram_gb=4.0, env="deepsequence",
+        model_version="DeepSequence VAE, 2000 ELBO samples",
         notes="Published against Python 2.7 and Theano. The container in "
               "envs/deepsequence/Dockerfile is the practical way to run it today.",
         install_hint="docker build -t vepbench-deepsequence envs/deepsequence",

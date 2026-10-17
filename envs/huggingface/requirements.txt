@@ -1,0 +1,9 @@
+# SaProt, ProSST, ProtT5 and Ankh.
+torch==2.14.1
+numpy>=1.26,<3
+pandas>=2.2
+transformers>=4.44,<6
+huggingface_hub>=0.25
+sentencepiece>=0.2
+protobuf>=5
+accelerate>=0.34

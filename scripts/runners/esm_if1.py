@@ -25,8 +25,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _runner_common import (  # noqa: E402
-    describe_hardware, fail, parse_job, pick_device, read_variants, write_meta,
+from _runner_common import (
+    describe_hardware,
+    fail,
+    parse_job,
+    pick_device,
+    read_variants,
+    write_meta,
     write_scores,
 )
 
@@ -48,8 +53,8 @@ def conditional_log_probs(model, alphabet, coords, sequence, device):
 
 def main() -> int:
     import esm
-    import esm.inverse_folding as inverse_folding
     import torch
+    from esm import inverse_folding
 
     job = parse_job()
     options = job.get("options", {})

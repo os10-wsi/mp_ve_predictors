@@ -1,0 +1,6 @@
+# METL pretrained models.
+torch==2.14.1
+numpy>=1.26,<3
+pandas>=2.2
+metl-pretrained>=0.1
+biopython>=1.84

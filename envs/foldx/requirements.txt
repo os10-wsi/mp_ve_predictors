@@ -1,0 +1,2 @@
+# FoldX itself is a licensed binary and is not installed here.
+pandas>=2.2

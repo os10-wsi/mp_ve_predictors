@@ -1,0 +1,2 @@
+# DeepSequence targets Python 2.7 and Theano. Use the Dockerfile in this
+# directory rather than a virtual environment.

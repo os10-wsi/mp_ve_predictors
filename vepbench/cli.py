@@ -120,6 +120,19 @@ def command_doctor(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}")
         return 2
 
+    if args.json:
+        # For scripts deciding whether a run is worth submitting. The exit
+        # code cannot carry that: "something is missing" and "nothing can
+        # run" are different answers and only the second should stop a job.
+        print(json.dumps({
+            "ready": result.ready,
+            "needs_download": result.needs_download,
+            "blocked": result.blocked,
+            "problems": [c.name for c in result.problems],
+            "warnings": [c.name for c in result.warnings],
+        }, indent=2))
+        return 0 if not result.problems else 1
+
     groups = {OK: "ready", WARNING: "warnings", MISSING: "missing"}
     for status in (MISSING, WARNING, OK):
         selected = [c for c in result.checks if c.status == status]
@@ -608,6 +621,9 @@ def build_parser() -> argparse.ArgumentParser:
                         choices=["colabfold", "ebi", "jackhmmer", "hhblits", "none"])
     doctor.add_argument("--features", nargs="+",
                         help="also check what these features need")
+    doctor.add_argument("--json", action="store_true",
+                        help="machine-readable report, for scripts that need to "
+                             "tell 'nothing can run' from 'something is missing'")
     # -v/--verbose is inherited from the shared parent parser; passing it
     # also lists the checks that already pass, not just the failures.
     doctor.set_defaults(func=command_doctor)

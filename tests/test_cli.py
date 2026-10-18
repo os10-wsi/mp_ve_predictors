@@ -120,6 +120,28 @@ def test_doctor_names_the_script_that_fetches_each_checkpoint(
     assert "download_weights_huggingface.sh all" not in out
 
 
+def test_doctor_json_separates_runnable_from_missing(bare_checkout, capsys):
+    """A submit script needs 'nothing can run' and 'something is missing' to
+    be different answers; the exit code alone cannot say which."""
+    assert bare_checkout.main(
+        ["doctor", "--predictors", "blosum62_baseline", "gemme", "--json"]
+    ) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["ready"] == ["blosum62_baseline"]
+    assert "gemme" in report["blocked"]
+    assert report["problems"], "a missing environment is still a problem"
+
+
+def test_doctor_json_is_clean_when_nothing_is_missing(bare_checkout, capsys):
+    assert bare_checkout.main(
+        ["doctor", "--predictors", "blosum62_baseline", "--json"]
+    ) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ready"] == ["blosum62_baseline"]
+    assert report["blocked"] == {}
+    assert report["problems"] == []
+
+
 def test_clean_lists_categories_and_their_cost(capsys):
     assert main(["clean", "--list"]) == 0
     out = capsys.readouterr().out

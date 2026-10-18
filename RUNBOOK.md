@@ -154,7 +154,12 @@ python3 -m vepbench doctor --predictors esm2_650m saprot     # just these
 python3 -m vepbench doctor --predictors esm2_650m -v         # also list what passes
 python3 -m vepbench doctor --msa-backend jackhmmer           # include the local backend
 python3 -m vepbench doctor --features secondary_structure    # include what features need
+python3 -m vepbench doctor --json                           # for scripts
 ```
+
+`--json` reports `ready`, `needs_download`, `blocked`, `problems` and
+`warnings` separately, because "something is missing" and "nothing can run"
+are different answers and an exit code cannot carry both.
 
 It checks the environment backend, each environment the request needs, the
 Hugging Face cache, external binaries (foldseek, java, jackhmmer, mkdssp,
@@ -267,11 +272,17 @@ It writes a self-contained job script under `outputs/jobs/`, prints it with
 the `bsub` line, and submits. The script is kept, so you can read exactly what
 ran, edit it and resubmit by hand without the wrapper.
 
-Two things it does that a hand-written `bsub` line usually forgets. It runs
-`doctor` first, so a missing environment costs a second rather than a place in
-the queue (`--skip-doctor` to submit anyway). And it pins `VEPBENCH_*` and
-`HF_HOME` to absolute paths resolved on the submit host, so the job cannot
-fall back to `$HOME` on the compute node and fill a small quota.
+Two things it does that a hand-written `bsub` line usually forgets. It checks
+what can actually run before queueing, and it pins `VEPBENCH_*` and `HF_HOME`
+to absolute paths resolved on the submit host, so the job cannot fall back to
+`$HOME` on the compute node and fill a small quota.
+
+The check prints what will run and what will be skipped, and refuses only when
+*nothing* requested can run. Some predictors being unavailable is normal and
+not a reason to hold a job: `--predictors all` always includes FoldX, which
+needs a licence, and DeepSequence, which needs a container runtime, and the
+runner records each skip in `status.json` with its reason. `--skip-doctor`
+bypasses the check entirely.
 
 The GPU queue defaults to `gpu`. On a cluster that calls it something else,
 pass `--queue` or set `$VEPBENCH_QUEUE`; `bqueues -gpu` lists the GPU queues.

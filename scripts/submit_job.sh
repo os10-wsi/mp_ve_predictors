@@ -111,16 +111,50 @@ else
 fi
 if [ -z "$NAME" ]; then NAME="vepbench-$LABEL"; fi
 
-# Preflight on the submit host. A job that was never going to work should not
-# wait in a queue to find out.
+# Preflight on the submit host. A job that cannot run anything should not wait
+# in a queue to find out. A job that will skip some predictors is normal:
+# `--predictors all` always includes ones needing a licence (FoldX) or a
+# container runtime (DeepSequence), and the runner skips them with a reason.
+# Gating on "everything is installed" would refuse every `all` submission.
 if [ "$SKIP_DOCTOR" = "0" ]; then
-  echo "=== checking what is installed ==="
-  if ! "$PYTHON" -m vepbench doctor --predictors "${PREDICTORS[@]}"; then
-    echo >&2
-    echo "doctor reports missing pieces. Fix them, narrow --predictors, or pass" >&2
-    echo "--skip-doctor to submit anyway (unavailable predictors are skipped with" >&2
-    echo "a reason rather than failing the run)." >&2
-    exit 1
+  echo "=== checking what can run ==="
+  REPORT="$("$PYTHON" -m vepbench doctor --predictors "${PREDICTORS[@]}" --json)" || true
+  SUMMARY="$(printf '%s' "$REPORT" | "$PYTHON" -c '
+import json, sys
+try:
+    report = json.load(sys.stdin)
+except ValueError:
+    print("UNREADABLE"); raise SystemExit(0)
+ready, blocked = report["ready"], report["blocked"]
+pending = report["needs_download"]
+print(f"{len(ready)}	{len(blocked)}	{len(pending)}")
+print("	".join(ready))
+print("	".join(sorted(blocked)))
+')"
+  if [ "$SUMMARY" = "UNREADABLE" ]; then
+    echo "warning: could not read the doctor report; submitting anyway." >&2
+  else
+    COUNTS="$(printf '%s' "$SUMMARY" | sed -n 1p)"
+    READY_N="$(printf '%s' "$COUNTS" | cut -f1)"
+    BLOCKED_N="$(printf '%s' "$COUNTS" | cut -f2)"
+    PENDING_N="$(printf '%s' "$COUNTS" | cut -f3)"
+    echo "  will run : $READY_N predictor(s)"
+    printf '%s\n' "$SUMMARY" | sed -n 2p | tr '\t' ' ' | fold -s -w 76 | sed 's/^/             /'
+    if [ "$PENDING_N" -gt 0 ]; then
+      echo "  will download weights first: $PENDING_N"
+    fi
+    if [ "$BLOCKED_N" -gt 0 ]; then
+      echo "  will skip: $BLOCKED_N (recorded in status.json with a reason)"
+      printf '%s\n' "$SUMMARY" | sed -n 3p | tr '\t' ' ' | fold -s -w 76 | sed 's/^/             /'
+      echo "             \`$PYTHON -m vepbench doctor\` explains each one"
+    fi
+    if [ "$READY_N" -eq 0 ]; then
+      echo >&2
+      echo "error: none of the requested predictors can run, so the job would do" >&2
+      echo "nothing. Install what you need, widen --predictors, or pass" >&2
+      echo "--skip-doctor to submit regardless." >&2
+      exit 1
+    fi
   fi
 fi
 

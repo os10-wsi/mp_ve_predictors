@@ -259,21 +259,20 @@ It writes a self-contained job script under `outputs/jobs/`, prints it with
 the `bsub` line, and submits. The script is kept, so you can read exactly what
 ran, edit it and resubmit by hand without the wrapper.
 
-Three things it does that a hand-written `bsub` line usually forgets. It runs
+Two things it does that a hand-written `bsub` line usually forgets. It runs
 `doctor` first, so a missing environment costs a second rather than a place in
-the queue (`--skip-doctor` to submit anyway). It pins `VEPBENCH_*` and
+the queue (`--skip-doctor` to submit anyway). And it pins `VEPBENCH_*` and
 `HF_HOME` to absolute paths resolved on the submit host, so the job cannot
-fall back to `$HOME` on the compute node and fill a small quota. And it reads
-the GPU queue from `bqueues -gpu` rather than guessing a name: queue names
-differ between clusters, and LSF's esub rejects a `-gpu` job sent to a queue
-without GPUs without telling you which queues have them. Only `Open:Active`
-queues count, since `Open:Inact` accepts jobs and never starts them.
+fall back to `$HOME` on the compute node and fill a small quota.
+
+The GPU queue defaults to `gpu`. On a cluster that calls it something else,
+pass `--queue` or set `$VEPBENCH_QUEUE`; `bqueues -gpu` lists the GPU queues.
 
 | flag | default | |
 |---|---|---|
 | `--predictors` | `all` | unavailable ones are skipped with a reason |
 | `--features` | the default set | |
-| `--queue` | read from `bqueues -gpu` | or `$VEPBENCH_QUEUE` |
+| `--queue` | `gpu` | or `$VEPBENCH_QUEUE` |
 | `--no-gpu` | | uses `$VEPBENCH_CPU_QUEUE`, default `normal` |
 | `--gpus` | 1 | |
 | `--gpu-spec` | `num=%d:mode=shared` | the `bsub -gpu` string; `%d` is the GPU count |

@@ -28,6 +28,7 @@ from vepbench.readiness import (
     hf_cache_root,
     hf_model_cached,
     model_identifiers,
+    which_including_bundled,
 )
 
 
@@ -289,3 +290,56 @@ def test_nothing_is_both_ready_and_missing_something(paths, monkeypatch):
     gated = {name for check in result.checks if check.status == MISSING
              for name in check.blocks}
     assert not gated & set(result.ready)
+
+
+class TestBundledBinaries:
+    """Tools the install scripts drop in third_party/ need no PATH export.
+
+    Exporting it by hand works in the shell that installed the tool and is
+    missing in a batch job submitted from a fresh login, which fails hours
+    later inside the predictor.
+    """
+
+    @pytest.fixture
+    def foldseek(self, paths):
+        binary = paths.third_party / "foldseek" / "bin" / "foldseek"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\n")
+        binary.chmod(0o755)
+        return binary
+
+    def test_absent_everywhere_is_missing(self, paths, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        assert which_including_bundled("foldseek", paths) is None
+
+    def test_found_in_third_party_without_being_on_path(
+        self, paths, foldseek, monkeypatch
+    ):
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        assert which_including_bundled("foldseek", paths) == str(foldseek)
+
+    def test_path_wins_when_both_exist(self, paths, foldseek, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/foldseek")
+        assert which_including_bundled("foldseek", paths) == "/usr/bin/foldseek"
+
+    def test_a_directory_is_not_a_binary(self, paths, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        (paths.third_party / "foldseek" / "bin" / "foldseek").mkdir(parents=True)
+        assert which_including_bundled("foldseek", paths) is None
+
+    def test_a_non_executable_file_is_not_a_binary(self, paths, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        binary = paths.third_party / "foldseek" / "bin" / "foldseek"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("not executable")
+        binary.chmod(0o644)
+        assert which_including_bundled("foldseek", paths) is None
+
+    def test_runners_get_it_on_path(self, paths, foldseek, monkeypatch):
+        """doctor and the runner must agree about where a tool is."""
+        import shutil as real_shutil
+
+        from vepbench.envs import runner_environment
+        monkeypatch.setattr("vepbench.envs.PATHS", paths)
+        env = runner_environment()
+        assert real_shutil.which("foldseek", path=env["PATH"]) == str(foldseek)

@@ -416,7 +416,7 @@ python3 -m vepbench doctor --predictors <the ones you asked for>
 | `environment 'x' is not installed` | `python3 -m vepbench install-env x` |
 | `install did not finish` / `No module named 'filelock'` | `python3 -m vepbench install-env x` tops it up |
 | ESM-IF1 wants torch-scatter | `bash envs/esm_if1/install.sh`, needs `data.pyg.org` |
-| SaProt cannot find foldseek | `bash scripts/install_foldseek.sh`, then add it to PATH |
+| SaProt cannot find foldseek | `bash scripts/install_foldseek.sh`; it lands in `third_party/` where vepbench looks, no PATH export needed |
 | gated model 401 | `export HF_TOKEN=...` and accept the licence on the model page |
 | CUDA out of memory | `--dtype float16`, a smaller `--batch-size`, or `--device cpu` |
 | a weight download stalls | `export HF_HUB_DISABLE_XET=1` is already set for runners |

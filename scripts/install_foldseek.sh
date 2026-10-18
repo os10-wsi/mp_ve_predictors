@@ -25,5 +25,7 @@ DEST="$THIRD_PARTY/foldseek"
 mkdir -p "$DEST"
 curl -fL "$URL" | tar -xz -C "$DEST" --strip-components=1
 echo
-echo "Installed. Add it to PATH:"
+echo "Installed at $DEST/bin."
+echo "vepbench finds it there on its own; no PATH export is needed."
+echo "To use it from your own shell too:"
 echo "  export PATH=\"$DEST/bin:\$PATH\""

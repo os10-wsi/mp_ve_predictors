@@ -104,6 +104,22 @@ BINARIES = {
 }
 
 
+def which_including_bundled(binary: str, paths: Paths = PATHS) -> str | None:
+    """Find a binary on PATH, or in third_party/ where the scripts put it.
+
+    runner_environment() prepends those directories for the subprocesses, so
+    checking only PATH here would report a tool missing that a run will find.
+    """
+    found = shutil.which(binary)
+    if found:
+        return found
+    for directory in sorted(paths.third_party.glob("*/bin")):
+        candidate = directory / binary
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
 def environments_for(names: list[str]) -> list[str]:
     """Only the environments the requested predictors actually need."""
     return sorted({REGISTRY[n].spec.env for n in names if REGISTRY[n].spec.env})
@@ -185,7 +201,7 @@ def check_binaries(
                 blocks=() if present else blocks,
             ))
             continue
-        found = shutil.which(binary)
+        found = which_including_bundled(binary)
         described, fix = BINARIES[binary]
         checks.append(Check(
             name=f"binary {binary}", status=OK if found else MISSING,

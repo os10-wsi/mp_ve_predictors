@@ -458,9 +458,17 @@ def runner_environment() -> dict:
     blocking that CDN. Falling back to the classic LFS endpoint makes weight
     downloads work on those networks and is harmless elsewhere. Set
     ``VEPBENCH_ALLOW_XET=1`` to leave the default alone.
+
+    Tools the install scripts put in ``third_party/`` are added to PATH here
+    rather than left to the caller to export. Otherwise foldseek works in the
+    shell that installed it and is missing in a batch job submitted from a
+    fresh login, which fails hours later inside SaProt.
     """
     env = dict(os.environ)
     env.setdefault("PYTHONNOUSERSITE", "1")
+    bundled = [str(d) for d in sorted(PATHS.third_party.glob("*/bin")) if d.is_dir()]
+    if bundled:
+        env["PATH"] = os.pathsep.join([*bundled, env.get("PATH", "")]).rstrip(os.pathsep)
     if os.environ.get("VEPBENCH_ALLOW_XET") != "1":
         env.setdefault("HF_HUB_DISABLE_XET", "1")
     # Keep model weights off the home filesystem, which on a cluster is

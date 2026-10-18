@@ -87,6 +87,19 @@ class Paths:
         return Path(os.environ.get("VEPBENCH_WEIGHTS", self.data / "weights"))
 
     @property
+    def uv_cache(self) -> Path:
+        """uv's package cache, kept on the same filesystem as the venvs.
+
+        uv hardlinks from its cache into each environment when both sit on
+        one filesystem, and falls back to copying when they do not. The
+        default cache is under ``$HOME``, which on a cluster is a different
+        filesystem from the project directory, so every file is written
+        twice and counted twice against the quota. torch alone is tens of
+        thousands of files, and it is the inode quota that runs out first.
+        """
+        return Path(os.environ.get("UV_CACHE_DIR", self.root / ".uv-cache"))
+
+    @property
     def hf_home(self) -> Path:
         """Default Hugging Face cache, kept with the other weights.
 

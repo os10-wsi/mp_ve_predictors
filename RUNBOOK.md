@@ -459,6 +459,31 @@ python3 -m vepbench doctor --predictors <the ones you asked for>
 | a weight download stalls | `export HF_HUB_DISABLE_XET=1` is already set for runners |
 | an upstream repo moved | the runner prints the upstream error; the install script names the repo |
 
+### If an environment install hits "Disk quota exceeded"
+
+Usually the inode quota rather than the block quota: torch and its
+dependencies are tens of thousands of small files, so the message names
+something tiny like a timezone file while `df` still shows free space. On
+Lustre, check both with:
+
+```bash
+lfs quota -h -u $USER /lustre/scratch125
+```
+
+The column that matters is `files`, not `kbytes`. Two things help most:
+
+- **Keep uv's cache on the same filesystem as the environments.** vepbench
+  sets `UV_CACHE_DIR` to `<repo>/.uv-cache` for this reason. uv hardlinks
+  from its cache into each environment when they share a filesystem and
+  copies when they do not, so a cache under `$HOME` on a cluster writes
+  every file twice and counts it twice. If you see uv warn "Failed to
+  hardlink files", that is what is happening; `doctor` reports it too.
+- **Remove environments you are not going to use.** Each torch-based one is
+  several gigabytes and roughly 40,000 files: `rm -rf envs/<name>/.venv`.
+
+`python3 -m vepbench clean` frees scratch but very few inodes; it is the
+environments and the uv cache that hold them.
+
 ### If a download runs out of space
 
 Hugging Face defaults its cache to `~/.cache/huggingface`, which on a cluster

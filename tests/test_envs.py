@@ -406,3 +406,21 @@ def test_a_deleted_definition_says_how_to_restore_it(paths, monkeypatch):
     assert not spec.directory(paths).exists()
     with pytest.raises(EnvError, match=r"git checkout -- envs/eve"):
         create_env(spec, paths=paths)
+
+
+def test_uv_cache_defaults_beside_the_environments(paths):
+    """Otherwise uv copies instead of hardlinking, doubling disk and inodes."""
+    import os
+
+    from vepbench.envs import uv_environment
+
+    env = uv_environment(paths)
+    assert env["UV_CACHE_DIR"] == str(paths.uv_cache)
+    assert os.stat(paths.uv_cache).st_dev == os.stat(paths.root).st_dev
+
+
+def test_an_explicit_uv_cache_is_respected(paths, monkeypatch, tmp_path):
+    from vepbench.envs import uv_environment
+
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "mine"))
+    assert uv_environment(paths)["UV_CACHE_DIR"] == str(tmp_path / "mine")

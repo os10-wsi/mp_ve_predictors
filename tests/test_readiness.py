@@ -7,6 +7,7 @@ direction: no false "ready", and no advice that would destroy weights.
 
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 from pathlib import Path
@@ -22,6 +23,7 @@ from vepbench.readiness import (
     assess,
     check_binaries,
     check_environments,
+    check_inodes,
     check_legacy_cache,
     check_msa_database,
     check_weights,
@@ -413,3 +415,46 @@ class TestDownloadCommands:
         for name in REGISTRY:
             for repo in model_identifiers(name):
                 assert "GB" in download_command(repo), repo
+
+
+class TestInodesAndLinking:
+    """A quota'd project filesystem runs out of files before it runs out of
+    bytes: torch is tens of thousands of them, and uv writes each one twice
+    when it cannot hardlink."""
+
+    def test_free_inodes_are_reported(self, paths):
+        (inodes, _link) = check_inodes(paths)
+        assert inodes.name == "free files"
+        assert "inodes available" in inodes.detail
+
+    def test_a_cache_beside_the_envs_can_hardlink(self, paths):
+        (_inodes, link) = check_inodes(paths)
+        assert link.status == OK
+        assert "hardlink" in link.detail
+
+    def test_a_cache_on_another_filesystem_warns(self, paths, monkeypatch):
+        real = os.stat
+
+        def fake(path, *args, **kwargs):
+            result = real(path, *args, **kwargs)
+            if str(path) == str(paths.uv_cache):
+                class Moved:
+                    st_dev = result.st_dev + 1
+                return Moved()
+            return result
+
+        paths.uv_cache.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr("vepbench.readiness.os.stat", fake)
+        (_inodes, link) = check_inodes(paths)
+        assert link.status == WARNING
+        assert "counted twice" in link.detail
+        assert "UV_CACHE_DIR" in link.fix
+
+    def test_low_inodes_name_the_quota_command(self, paths, monkeypatch):
+        class Tight:
+            f_files, f_favail = 1_000_000, 1_000
+
+        monkeypatch.setattr("vepbench.readiness.os.statvfs", lambda p: Tight())
+        (inodes, *_rest) = check_inodes(paths)
+        assert inodes.status == WARNING
+        assert "lfs quota" in inodes.fix

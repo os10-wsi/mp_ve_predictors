@@ -323,7 +323,57 @@ def check_storage(paths: Paths = PATHS) -> list[Check]:
             fix="" if free_gb > 20 else "free space, or move the directory with "
                                         "VEPBENCH_WEIGHTS / VEPBENCH_OUTPUTS",
         ))
+    checks += check_inodes(paths)
     checks += check_legacy_cache(paths)
+    return checks
+
+
+def check_inodes(paths: Paths = PATHS) -> list[Check]:
+    """Free files, not just free bytes, and whether uv can hardlink.
+
+    A project filesystem usually limits both. torch is tens of thousands of
+    small files, so an environment install runs out of inodes long before it
+    runs out of space, and the error names a 100-byte timezone file rather
+    than the quota.
+    """
+    checks = []
+    target = paths.envs
+    while not target.exists() and target != target.parent:
+        target = target.parent
+    try:
+        stat = os.statvfs(target)
+    except OSError:
+        return checks
+    if stat.f_files:
+        free = stat.f_favail
+        checks.append(Check(
+            name="free files", status=OK if free > 500_000 else WARNING,
+            detail=f"{free:,} inodes available at {target}",
+            fix="" if free > 500_000 else (
+                "an environment needs ~100k files; check your quota "
+                "(`lfs quota -h -u $USER <filesystem>` on Lustre)"
+            ),
+        ))
+
+    # uv hardlinks from its cache when both are on one filesystem, and copies
+    # when they are not, writing and counting every file twice. The cache may
+    # not exist yet, so ask about the nearest directory that does: it is where
+    # the cache will be created.
+    cache = paths.uv_cache
+    while not cache.exists() and cache != cache.parent:
+        cache = cache.parent
+    try:
+        same = os.stat(cache).st_dev == os.stat(target).st_dev
+    except OSError:
+        return checks
+    checks.append(Check(
+        name="uv cache", status=OK if same else WARNING,
+        detail=(f"{paths.uv_cache} (hardlinks into the environments)" if same
+                else f"{paths.uv_cache} is on a different filesystem from "
+                     f"{target}, so every package is copied, not hardlinked, "
+                     f"and counted twice against the quota"),
+        fix="" if same else f"unset UV_CACHE_DIR, or set it under {paths.root}",
+    ))
     return checks
 
 

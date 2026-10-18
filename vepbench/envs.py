@@ -286,17 +286,32 @@ def resolve_backend(requested: str | None = None) -> str:
     )
 
 
+def uv_environment(paths: Paths = PATHS) -> dict:
+    """Environment for uv, with its cache beside the venvs it fills.
+
+    Without this uv copies rather than hardlinks, which on a quota'd project
+    filesystem fails partway through a large install.
+    """
+    env = dict(os.environ)
+    if not env.get("UV_CACHE_DIR"):
+        paths.uv_cache.mkdir(parents=True, exist_ok=True)
+        env["UV_CACHE_DIR"] = str(paths.uv_cache)
+    return env
+
+
 def _create_with_uv(spec: EnvSpec, paths: Paths, venv: Path) -> None:
     uv = which_backend(UV_BACKEND)
+    env = uv_environment(paths)
     if not venv.exists():
         log.info("creating %s with uv (python %s)", spec.name, spec.python)
-        subprocess.run([uv, "venv", "--python", spec.python, str(venv)], check=True)
+        subprocess.run([uv, "venv", "--python", spec.python, str(venv)],
+                       check=True, env=env)
     requirements = spec.requirements(paths)
     if requirements.exists():
         subprocess.run(
             [uv, "pip", "install", "--python", str(spec.interpreter(paths)),
              "-r", str(requirements)],
-            check=True,
+            check=True, env=env,
         )
     conda_packages = spec.conda_packages(paths)
     if conda_packages.exists():
@@ -361,7 +376,7 @@ def _reinstall(spec: EnvSpec, paths: Paths, backend: str) -> None:
     else:
         command = [str(spec.interpreter(paths)), "-m", "pip", "install",
                    "--force-reinstall", "-r", str(requirements)]
-    subprocess.run(command, check=True)
+    subprocess.run(command, check=True, env=uv_environment(paths))
 
 
 def _read_package_list(path: Path) -> list[str]:

@@ -14,6 +14,7 @@ from vepbench.envs import (
     create_env,
     get_env,
     resolve_backend,
+    which_backend,
 )
 
 
@@ -36,6 +37,12 @@ def test_environment_variable_selects_the_backend(monkeypatch):
     monkeypatch.setenv("VEPBENCH_ENV_BACKEND", "mamba")
     monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
     assert resolve_backend() == "mamba"
+
+
+@pytest.fixture(autouse=True)
+def no_backends_on_disk(monkeypatch):
+    """Stop the filesystem search from answering tests that stub PATH."""
+    monkeypatch.setattr("vepbench.envs.BACKEND_SEARCH_PATH", ())
 
 
 def test_explicit_choice_beats_the_environment_variable(monkeypatch):
@@ -339,3 +346,54 @@ def test_an_explicit_hf_home_is_respected(monkeypatch, tmp_path):
     monkeypatch.setenv("HF_HOME", "/scratch/models")
     monkeypatch.setattr(envs_module, "PATHS", type(envs_module.PATHS)(root=tmp_path))
     assert envs_module.runner_environment()["HF_HOME"] == "/scratch/models"
+
+
+class TestBackendDiscovery:
+    """uv installs to ~/.local/bin, which a compute node's profile may miss.
+
+    Looking only at PATH reports the backend missing on exactly the machine
+    where the environments need building.
+    """
+
+    @pytest.fixture
+    def installed(self, tmp_path, monkeypatch):
+        directory = tmp_path / ".local" / "bin"
+        directory.mkdir(parents=True)
+        monkeypatch.setattr("vepbench.envs.BACKEND_SEARCH_PATH", (str(directory),))
+        monkeypatch.setattr("shutil.which", lambda name: None)
+        return directory
+
+    def make(self, directory, name, mode=0o755):
+        binary = directory / name
+        binary.write_text("#!/bin/sh\n")
+        binary.chmod(mode)
+        return binary
+
+    def test_found_off_path(self, installed):
+        binary = self.make(installed, "uv")
+        assert which_backend("uv") == str(binary)
+        assert resolve_backend() == "uv"
+
+    def test_path_wins_over_the_search(self, installed, monkeypatch):
+        self.make(installed, "uv")
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/uv")
+        assert which_backend("uv") == "/usr/bin/uv"
+
+    def test_an_explicit_backend_is_found_there_too(self, installed, monkeypatch):
+        self.make(installed, "micromamba")
+        monkeypatch.setenv("VEPBENCH_ENV_BACKEND", "micromamba")
+        assert resolve_backend() == "micromamba"
+
+    def test_uv_still_preferred_over_conda_found_the_same_way(self, installed):
+        self.make(installed, "conda")
+        self.make(installed, "uv")
+        assert resolve_backend() == "uv"
+
+    def test_a_non_executable_file_does_not_count(self, installed):
+        self.make(installed, "uv", mode=0o644)
+        with pytest.raises(EnvError, match="no environment backend found"):
+            resolve_backend()
+
+    def test_the_error_says_where_it_looked(self, installed):
+        with pytest.raises(EnvError, match=str(installed)):
+            resolve_backend()

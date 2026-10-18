@@ -233,6 +233,29 @@ ENV_BACKENDS = (UV_BACKEND,) + CONDA_BACKENDS
 CONDA_CHANNELS = ("conda-forge", "bioconda")
 
 
+# Where uv and the conda family put themselves when installed per-user. A
+# cluster login node often has these on PATH while a compute or interactive
+# node started from a different profile does not, so looking only at PATH
+# reports the backend missing on the machine where the work happens.
+BACKEND_SEARCH_PATH = (
+    "~/.local/bin", "~/.cargo/bin", "~/bin",
+    "~/miniforge3/bin", "~/mambaforge/bin", "~/miniconda3/bin", "~/anaconda3/bin",
+    "~/micromamba/bin", "/opt/conda/bin",
+)
+
+
+def which_backend(name: str) -> str | None:
+    """Find a backend on PATH, or where its installer usually puts it."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for directory in BACKEND_SEARCH_PATH:
+        candidate = Path(directory).expanduser() / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
 def resolve_backend(requested: str | None = None) -> str:
     """Pick the tool that builds environments.
 
@@ -248,21 +271,23 @@ def resolve_backend(requested: str | None = None) -> str:
                 f"unknown environment backend {requested!r}; "
                 f"choose one of {', '.join(ENV_BACKENDS)}"
             )
-        if shutil.which(requested) is None:
+        if which_backend(requested) is None:
             raise EnvError(f"{requested} was requested but is not on PATH")
         return requested
     for candidate in (UV_BACKEND, *CONDA_BACKENDS):
-        if shutil.which(candidate) is not None:
+        if which_backend(candidate) is not None:
             return candidate
     raise EnvError(
-        "no environment backend found. Install uv "
-        "(https://docs.astral.sh/uv/), or conda, mamba or micromamba, or build "
-        "the environments by hand from envs/<name>/requirements.txt."
+        "no environment backend found. Install uv with "
+        "`curl -LsSf https://astral.sh/uv/install.sh | sh`, or use conda, "
+        "mamba or micromamba, or build the environments by hand from "
+        "envs/<name>/requirements.txt. If one is already installed, it is "
+        "neither on PATH nor in " + ", ".join(BACKEND_SEARCH_PATH) + "."
     )
 
 
 def _create_with_uv(spec: EnvSpec, paths: Paths, venv: Path) -> None:
-    uv = shutil.which(UV_BACKEND)
+    uv = which_backend(UV_BACKEND)
     if not venv.exists():
         log.info("creating %s with uv (python %s)", spec.name, spec.python)
         subprocess.run([uv, "venv", "--python", spec.python, str(venv)], check=True)
@@ -284,7 +309,7 @@ def _create_with_uv(spec: EnvSpec, paths: Paths, venv: Path) -> None:
 
 
 def _create_with_conda(spec: EnvSpec, paths: Paths, venv: Path, backend: str) -> None:
-    conda = shutil.which(backend)
+    conda = which_backend(backend)
     channels: list[str] = []
     for channel in CONDA_CHANNELS:
         channels += ["-c", channel]
@@ -331,7 +356,7 @@ def _reinstall(spec: EnvSpec, paths: Paths, backend: str) -> None:
         return
     log.warning("%s is missing dependencies after install; reinstalling", spec.name)
     if backend == UV_BACKEND:
-        command = [shutil.which(UV_BACKEND), "pip", "install", "--reinstall",
+        command = [which_backend(UV_BACKEND), "pip", "install", "--reinstall",
                    "--python", str(spec.interpreter(paths)), "-r", str(requirements)]
     else:
         command = [str(spec.interpreter(paths)), "-m", "pip", "install",

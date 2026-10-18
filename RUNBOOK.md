@@ -265,8 +265,22 @@ fingerprint of their inputs.
 ```bash
 bash scripts/submit_job.sh --uniprot P26678
 bash scripts/submit_job.sh --uniprot P26678 --predictors esm1v_full esm2_650m saprot
+bash scripts/submit_job.sh --uniprot-list ids.txt                # one task per protein
 bash scripts/submit_job.sh --uniprot-list ids.txt --dry-run      # print, submit nothing
 ```
+
+A list of more than one accession is submitted as an LSF job array: one task
+per protein, so the scheduler runs them in parallel and one protein failing
+costs that protein rather than the batch. At most 10 run at once, which
+`--max-parallel` changes; `--one-job` runs the whole list serially in a
+single job instead.
+
+The list is copied beside the job script at submission, because a queued
+array reads it as each task starts, which may be hours later. Editing the
+original afterwards cannot change what runs. Blank lines and `#` comments
+are dropped.
+
+Logs are per task: `<name>-<stamp>.<jobid>.<task>.{out,err}`.
 
 It writes a self-contained job script under `outputs/jobs/`, prints it with
 the `bsub` line, and submits. The script is kept, so you can read exactly what
@@ -299,6 +313,8 @@ pass `--queue` or set `$VEPBENCH_QUEUE`; `bqueues -gpu` lists the GPU queues.
 | `--mem` | 32000 | MB |
 | `--time` | `4:00` | |
 | `--name` | `vepbench-<accession>` | also names the logs |
+| `--max-parallel` | 10 | array tasks running at once |
+| `--one-job` | | run a list serially in one job instead of an array |
 | `--dry-run` | | print the job script and the `bsub` line, submit nothing |
 | `-- ...` | | everything after `--` is passed through to `vepbench run` |
 

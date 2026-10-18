@@ -38,6 +38,8 @@ MEM_MB=32000
 WALLTIME="4:00"
 GPUS=1
 NAME=""
+ARRAY=1                              # a list submits one task per accession
+MAX_PARALLEL="${VEPBENCH_MAX_PARALLEL:-10}"
 DRY_RUN=0
 SKIP_DOCTOR=0
 EXTRA=()
@@ -58,6 +60,8 @@ while [ $# -gt 0 ]; do
     --no-gpu)        GPUS=0; shift ;;
     --gpus)          GPUS="$2"; shift 2 ;;
     --name)          NAME="$2"; shift 2 ;;
+    --one-job)       ARRAY=0; shift ;;
+    --max-parallel)  MAX_PARALLEL="$2"; shift 2 ;;
     --dry-run)       DRY_RUN=1; shift ;;
     --skip-doctor)   SKIP_DOCTOR=1; shift ;;
     --)              shift; EXTRA+=("$@"); break ;;
@@ -108,6 +112,13 @@ else
   LIST="$(cd "$(dirname "$LIST")" && pwd)/$(basename "$LIST")"
   TARGET_FLAG=(--uniprot-list "$LIST")
   LABEL="$(basename "${LIST%.*}")"
+fi
+if [ -n "$LIST" ]; then
+  N_IDS="$(grep -cve '^[[:space:]]*$' -e '^[[:space:]]*#' "$LIST" || true)"
+  if [ "${N_IDS:-0}" -lt 1 ]; then
+    echo "error: $LIST has no accessions in it" >&2
+    exit 2
+  fi
 fi
 if [ -z "$NAME" ]; then NAME="vepbench-$LABEL"; fi
 
@@ -163,6 +174,15 @@ LOG_DIR="$JOB_DIR/logs"
 mkdir -p "$LOG_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 JOB_SCRIPT="$JOB_DIR/${NAME}-${STAMP}.sh"
+USE_ARRAY=0
+if [ -n "$LIST" ] && [ "$ARRAY" = "1" ] && [ "$N_IDS" -gt 1 ]; then
+  USE_ARRAY=1
+  # A queued array reads this file as each task starts, which can be hours
+  # after submission. Copy it, so editing the original does not silently
+  # change what runs.
+  LIST_SNAPSHOT="$JOB_DIR/${NAME}-${STAMP}.ids"
+  grep -ve '^[[:space:]]*$' -e '^[[:space:]]*#' "$LIST" > "$LIST_SNAPSHOT"
+fi
 
 # Resolve the data locations now, so the job cannot fall back to $HOME.
 VEPBENCH_DATA_ABS="${VEPBENCH_DATA:-$ROOT/data}"
@@ -203,23 +223,49 @@ quote() { printf '%q ' "$@"; }
   echo '  && nvidia-smi --query-gpu=name,memory.total --format=csv,noheader \'
   echo '  || echo "gpu     : none visible, running on CPU"'
   echo
+  if [ "$USE_ARRAY" = "1" ]; then
+    echo "# One accession per array task, from the snapshot taken at submission."
+    echo "ACCESSION=\"\$(sed -n \"\${LSB_JOBINDEX}p\" $(printf '%q' "$LIST_SNAPSHOT"))\""
+    echo 'if [ -z "$ACCESSION" ]; then'
+    echo '  echo "no accession at index $LSB_JOBINDEX" >&2; exit 1'
+    echo 'fi'
+    echo 'echo "accession: $ACCESSION"'
+    echo
+    RUN_TARGET=(--uniprot '$ACCESSION')
+  else
+    RUN_TARGET=("${TARGET_FLAG[@]}")
+  fi
   echo '"$PYTHON" -m vepbench run \'
-  echo "  $(quote "${TARGET_FLAG[@]}")\\"
+  if [ "$USE_ARRAY" = "1" ]; then
+    echo '  --uniprot "$ACCESSION" \'
+  else
+    echo "  $(quote "${TARGET_FLAG[@]}")\\"
+  fi
   echo "  --predictors $(quote "${PREDICTORS[@]}")\\"
   if [ ${#FEATURES[@]} -gt 0 ]; then echo "  --features $(quote "${FEATURES[@]}")\\"; fi
   if [ ${#EXTRA[@]} -gt 0 ]; then echo "  $(quote "${EXTRA[@]}")\\"; fi
   echo "  ;"
   echo
   echo 'echo "finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"'
-  echo "\"\$PYTHON\" -m vepbench status $(quote "${TARGET_FLAG[@]}")"
+  if [ "$USE_ARRAY" = "1" ]; then
+    echo '"$PYTHON" -m vepbench status --uniprot "$ACCESSION"'
+  else
+    echo "\"\$PYTHON\" -m vepbench status $(quote "${TARGET_FLAG[@]}")"
+  fi
 } > "$JOB_SCRIPT"
 chmod +x "$JOB_SCRIPT"
 
-BSUB=(bsub -J "$NAME" -q "$QUEUE" -n "$CORES"
+JOB_NAME="$NAME"
+LOG_SUFFIX="%J"
+if [ "$USE_ARRAY" = "1" ]; then
+  JOB_NAME="${NAME}[1-${N_IDS}]%${MAX_PARALLEL}"
+  LOG_SUFFIX="%J.%I"
+fi
+BSUB=(bsub -J "$JOB_NAME" -q "$QUEUE" -n "$CORES"
       -M "$MEM_MB" -R "select[mem>$MEM_MB] rusage[mem=$MEM_MB] span[hosts=1]"
       -W "$WALLTIME"
-      -o "$LOG_DIR/${NAME}-${STAMP}.%J.out"
-      -e "$LOG_DIR/${NAME}-${STAMP}.%J.err")
+      -o "$LOG_DIR/${NAME}-${STAMP}.${LOG_SUFFIX}.out"
+      -e "$LOG_DIR/${NAME}-${STAMP}.${LOG_SUFFIX}.err")
 if [ "$GPUS" -gt 0 ]; then
   # shellcheck disable=SC2059  # the %d is the caller's, from --gpu-spec
   BSUB+=(-gpu "$(printf "$GPU_SPEC" "$GPUS")")
@@ -234,7 +280,12 @@ echo
 echo "=== submit command ==="
 printf '  '; printf '%q ' "${BSUB[@]}"; echo
 echo
-echo "logs: $LOG_DIR/${NAME}-${STAMP}.<jobid>.{out,err}"
+if [ "$USE_ARRAY" = "1" ]; then
+  echo "array: $N_IDS task(s), at most $MAX_PARALLEL at once (--max-parallel)"
+  echo "       one accession each, from $LIST_SNAPSHOT"
+  echo "       --one-job instead runs them all in a single serial job"
+fi
+echo "logs: $LOG_DIR/${NAME}-${STAMP}.<jobid>${USE_ARRAY:+.<task>}.{out,err}"
 
 if [ "$DRY_RUN" = "1" ]; then
   echo

@@ -428,6 +428,65 @@ def test_no_script_assumes_a_bare_python_exists(script):
         "\n".join(offenders)
 
 
+class TestArraySubmission:
+    """A list of accessions should become one task per protein.
+
+    One serial job over 57 proteins wastes the scheduler and loses
+    everything after a failure partway through.
+    """
+
+    def submit(self, tmp_path, ids, *extra):
+        import subprocess
+
+        listing = tmp_path / "ids.txt"
+        listing.write_text("".join(f"{i}\n" for i in ids))
+        result = subprocess.run(
+            ["bash", str(REPO / "scripts" / "submit_job.sh"),
+             "--uniprot-list", str(listing), "--predictors", "blosum62_baseline",
+             "--dry-run", "--skip-doctor", *extra],
+            capture_output=True, text=True, cwd=REPO, check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        # The printed bsub line is shell-quoted so it can be pasted; drop the
+        # escapes before matching on the array spec.
+        return result.stdout.replace("\\", "")
+
+    def test_a_list_becomes_an_array(self, tmp_path):
+        out = self.submit(tmp_path, ["P26678", "P53943", "P04817"])
+        assert "[1-3]" in out
+        assert "LSB_JOBINDEX" in out
+
+    def test_tasks_are_capped(self, tmp_path):
+        out = self.submit(tmp_path, ["P26678", "P53943"], "--max-parallel", "4")
+        assert "[1-2]%4" in out
+
+    def test_logs_are_per_task(self, tmp_path):
+        out = self.submit(tmp_path, ["P26678", "P53943"])
+        assert "%J.%I.out" in out
+
+    def test_one_job_opts_out(self, tmp_path):
+        out = self.submit(tmp_path, ["P26678", "P53943"], "--one-job")
+        assert "LSB_JOBINDEX" not in out
+        assert "--uniprot-list" in out
+
+    def test_a_single_accession_needs_no_array(self, tmp_path):
+        out = self.submit(tmp_path, ["P26678"])
+        assert "LSB_JOBINDEX" not in out
+
+    def test_an_empty_list_is_refused(self, tmp_path):
+        import subprocess
+
+        listing = tmp_path / "empty.txt"
+        listing.write_text("\n# nothing but a comment\n\n")
+        result = subprocess.run(
+            ["bash", str(REPO / "scripts" / "submit_job.sh"),
+             "--uniprot-list", str(listing), "--dry-run", "--skip-doctor"],
+            capture_output=True, text=True, cwd=REPO, check=False,
+        )
+        assert result.returncode == 2
+        assert "no accessions" in result.stderr
+
+
 def test_the_demo_resolves_an_interpreter_before_using_one():
     demo = (REPO / "examples" / "run_demo.sh").read_text()
     assert "find_python" in demo

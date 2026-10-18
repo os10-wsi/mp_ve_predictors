@@ -366,3 +366,55 @@ def test_the_demo_resolves_an_interpreter_before_using_one():
     demo = (REPO / "examples" / "run_demo.sh").read_text()
     assert "find_python" in demo
     assert "VEPBENCH_PYTHON" in demo, "allow pointing the demo at a chosen interpreter"
+
+
+class TestRootDiscovery:
+    """vepbench must work from anywhere inside the checkout.
+
+    Taking the working directory as the root resolved everything one level
+    too deep when run from a subdirectory: `envs/gemme` became
+    `envs/envs/gemme`, every environment read as missing, and the error named
+    a path that was never going to exist.
+    """
+
+    @pytest.fixture
+    def checkout(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("VEPBENCH_ROOT", raising=False)
+        root = tmp_path / "mp_ve_predictors"
+        for marker in ("pyproject.toml",):
+            (root / marker).parent.mkdir(parents=True, exist_ok=True)
+            (root / marker).write_text("")
+        (root / "vepbench").mkdir()
+        (root / "envs" / "esm").mkdir(parents=True)
+        (root / "scripts" / "runners").mkdir(parents=True)
+        return root
+
+    def found_from(self, directory):
+        from vepbench.config import find_root
+
+        return find_root(directory)
+
+    def test_the_root_itself(self, checkout):
+        assert self.found_from(checkout) == checkout
+
+    @pytest.mark.parametrize(
+        "subdir", ["envs", "envs/esm", "scripts", "scripts/runners", "vepbench"]
+    )
+    def test_any_subdirectory(self, checkout, subdir):
+        assert self.found_from(checkout / subdir) == checkout
+
+    def test_envs_is_not_mistaken_for_the_root(self, checkout):
+        """envs/ holds envs/<name>/, so a bare envs/ check stops too deep."""
+        assert self.found_from(checkout / "envs") == checkout
+        assert self.found_from(checkout / "envs") != checkout / "envs"
+
+    def test_the_override_still_wins(self, checkout, monkeypatch, tmp_path):
+        monkeypatch.setenv("VEPBENCH_ROOT", str(tmp_path / "elsewhere"))
+        assert self.found_from(checkout / "envs") == tmp_path / "elsewhere"
+
+    def test_outside_a_checkout_falls_back(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("VEPBENCH_ROOT", raising=False)
+        outside = tmp_path / "unrelated"
+        outside.mkdir()
+        # The installed package's own checkout, or the directory asked about.
+        assert self.found_from(outside) in (outside, Path(__file__).parent.parent)

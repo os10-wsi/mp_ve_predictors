@@ -8,7 +8,39 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DEFAULT_ROOT = Path(os.environ.get("VEPBENCH_ROOT", Path.cwd()))
+# Files that only exist at the top of a vepbench checkout. envs/ alone is
+# not enough: a checkout contains envs/<name>/, so looking for it from inside
+# envs/ would stop one level too deep.
+ROOT_MARKERS = ("pyproject.toml", "vepbench", "envs")
+
+
+def _looks_like_root(directory: Path) -> bool:
+    return all((directory / marker).exists() for marker in ROOT_MARKERS)
+
+
+def find_root(start: Path | None = None) -> Path:
+    """Locate the checkout, from anywhere inside it.
+
+    Taking the working directory as the root silently resolves everything one
+    level too deep when run from a subdirectory: `envs/` becomes `envs/envs/`,
+    every environment reads as missing, and the error names a path that was
+    never going to exist. Walk up instead, as git and npm do.
+    """
+    override = os.environ.get("VEPBENCH_ROOT")
+    if override:
+        return Path(override)
+    start = (start or Path.cwd()).resolve()
+    for directory in (start, *start.parents):
+        if _looks_like_root(directory):
+            return directory
+    # Not inside a checkout. An editable install still points at one; a real
+    # install does not, and then the working directory is as good a guess as
+    # any, which is the behaviour this replaces.
+    installed = Path(__file__).resolve().parent.parent
+    return installed if _looks_like_root(installed) else start
+
+
+DEFAULT_ROOT = find_root()
 
 
 @dataclass

@@ -33,8 +33,6 @@ EXPECTED_DIRECTION = {
     "saprot_dg_masked_marginal": MORE_TOLERATED,
     "esm3_dg_masked_marginal": MORE_TOLERATED,
     "blosum62_baseline": MORE_TOLERATED, "pssm_independent": MORE_TOLERATED,
-    # DDMut follows the mCSM convention, where positive is stabilising.
-    "ddmut": MORE_TOLERATED,
     # EVE's evolutionary index is the negative log-likelihood ratio.
     "eve_full": MORE_DELETERIOUS, "eve_domain": MORE_DELETERIOUS,
     # VESPA outputs a probability that the substitution has an effect.
@@ -47,7 +45,7 @@ EXPECTED_DIRECTION = {
 
 # Conventions not confirmed against the method's own documentation. Shrinking
 # this set is good; growing it silently is not.
-EXPECTED_UNVERIFIED = {"thermompnn", "ddmut", "metl_global", "saprot_dg", "esm3_dg"}
+EXPECTED_UNVERIFIED = {"thermompnn", "metl_global", "saprot_dg", "esm3_dg"}
 
 
 def test_every_predictor_has_an_expected_direction():
@@ -125,7 +123,7 @@ def test_proteingym_flag_is_set_where_claimed():
 
 
 def test_stability_methods_report_energy_units():
-    for name in ("foldx", "rasp", "thermompnn", "ddmut", "saprot_dg", "esm3_dg"):
+    for name in ("foldx", "rasp", "thermompnn", "saprot_dg", "esm3_dg"):
         assert REGISTRY[name].spec.convention.score_type == "ddG_kcal_mol"
 
 

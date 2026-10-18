@@ -64,7 +64,7 @@ def test_check_conventions(capsys):
     assert main(["check-conventions"]) == 0
     out = capsys.readouterr().out
     assert "NEEDS CONFIRMATION" in out
-    assert "ddmut" in out
+    assert "thermompnn" in out
 
 
 def test_status_lists_environments(capsys):

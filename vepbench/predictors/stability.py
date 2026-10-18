@@ -20,7 +20,7 @@ from vepbench.predictors.base import (
     register,
 )
 from vepbench.protein import ProteinContext
-from vepbench.schema import MORE_DELETERIOUS, MORE_TOLERATED, ScoreConvention
+from vepbench.schema import MORE_DELETERIOUS, ScoreConvention
 
 # Rosetta-style: ddG = G(mutant) - G(wild type), positive is destabilising.
 _DDG_POSITIVE_DESTABILISING = ScoreConvention(
@@ -91,32 +91,6 @@ register(FoldXPredictor(
         install_hint="export FOLDX_BINARY=/path/to/foldx",
     ),
     runner_name="foldx.py", options={"repair": True, "num_runs": 1},
-))
-
-register(SubprocessPredictor(
-    PredictorSpec(
-        name="ddmut", display_name="DDMut", category="stability",
-        convention=ScoreConvention(
-            score_type="ddG_kcal_mol", higher_is=MORE_TOLERATED, verified=False,
-            source="The mCSM and DDMut family from the Ascher lab reports positive ddG "
-                   "as stabilising, the opposite of Rosetta and FoldX. This was NOT "
-                   "confirmed against DDMut's own documentation; confirm with "
-                   "`vepbench check-conventions` before benchmarking.",
-        ),
-        citation="Zhou Y, Pan Q, Pires DEV, Rodrigues CHM, Ascher DB. DDMut: "
-                 "predicting effects of mutations on protein stability using deep "
-                 "learning. Nucleic Acids Res 2023;51:W122-W128",
-        repo_url="https://biosig.lab.uq.edu.au/ddmut/",
-        license="Free for academic use; web service, code not distributed",
-        requires=frozenset({"sequence", "structure"}), env="ddmut",
-        model_version="DDMut web service",
-        notes="Served as a web API rather than as code, so runs depend on the public "
-              "server and are rate limited. A saturation scan submits many jobs; the "
-              "runner throttles and caches per variant. Set DDMUT_ENDPOINT for a local "
-              "deployment.",
-        install_hint="python3 -m vepbench install-env ddmut",
-    ),
-    runner_name="ddmut.py", options={"rate_limit_seconds": 2.0},
 ))
 
 register(SubprocessPredictor(

@@ -428,7 +428,7 @@ Per protein of a few hundred residues, on one modern GPU:
 | ColabFold alignment | seconds to minutes, server-side |
 | jackhmmer against UniRef90 | tens of minutes, CPU-bound |
 | EVE | hours, it trains a VAE per protein |
-| FoldX, DDMut | hours, they are per-variant |
+| FoldX | hours, it is per-variant |
 
 Start with the fast ones on one protein, confirm the numbers look sane, then
 scale out.
@@ -587,11 +587,9 @@ everything is still in `pyproject.toml`.
 vepbench check-conventions
 ```
 
-Five sign conventions are unconfirmed: `thermompnn`, `ddmut`, `metl_global`,
+Four sign conventions are unconfirmed: `thermompnn`, `metl_global`,
 `saprot_dg`, `esm3_dg`. An inverted sign turns the best predictor into the
-worst, so confirm them against each method's own documentation first. DDMut
-matters most, since the mCSM family reports positive ΔΔG as stabilising while
-FoldX and Rosetta do the opposite.
+worst, so confirm them against each method's own documentation first.
 
 Also check the leakage columns in [PREDICTORS.md](PREDICTORS.md). ThermoMPNN,
 SaProt-dG and ESM3-dG were trained on the Tsuboyama 2023 mega-scale data, and

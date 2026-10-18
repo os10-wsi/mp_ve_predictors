@@ -151,7 +151,7 @@ def test_unknown_predictor_is_rejected(paths, structure_path):
 
 def test_group_names_expand(paths, structure_path):
     result = run_protein(ACCESSION, _config(paths, structure_path, ["stability"]))
-    assert {"foldx", "rasp", "thermompnn", "ddmut"} <= {o.name for o in result.outcomes}
+    assert {"foldx", "rasp", "thermompnn"} <= {o.name for o in result.outcomes}
 
 
 def test_no_msa_group_excludes_alignment_models(paths, structure_path):

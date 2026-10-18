@@ -94,7 +94,7 @@ if [ "$TIER" = "core" ]; then
   ENVS=(esm huggingface proteinmpnn)
 else
   ENVS=(esm esm_if1 huggingface proteinmpnn evcouplings gemme vespa metl
-        rasp eve tranception s3f venusrem promep stability_dg ddmut foldx)
+        rasp eve tranception s3f venusrem promep stability_dg foldx)
 fi
 ENV_FAILED=()
 for env in "${ENVS[@]}"; do

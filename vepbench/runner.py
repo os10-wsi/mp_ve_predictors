@@ -332,7 +332,7 @@ def build_metadata(
     if protein.is_membrane_protein:
         caveats.append(
             "This is a membrane protein. The stability predictors here (FoldX, RaSP, "
-            "ThermoMPNN, DDMut) and the inverse-folding models (ProteinMPNN, ESM-IF1) "
+            "ThermoMPNN) and the inverse-folding models (ProteinMPNN, ESM-IF1) "
             "were trained or parameterised largely on soluble, globular proteins. "
             "Their scores for lipid-facing residues are out of distribution and should "
             "not be read as free energies of folding in a bilayer."

@@ -76,7 +76,7 @@ model rather than five.
 
 ## Membrane proteins
 
-Every stability predictor here (FoldX, RaSP, ThermoMPNN, DDMut and the two dG
+Every stability predictor here (FoldX, RaSP, ThermoMPNN and the two dG
 heads) and both inverse-folding models were trained or parameterised largely
 on soluble, globular proteins. For a membrane protein their scores are out of
 distribution, and a lipid-facing residue looks to them like exposed

@@ -280,8 +280,8 @@ that direction was read from:
 python3 -m vepbench check-conventions
 ```
 
-Five currently have unconfirmed directions: `thermompnn`, `ddmut`,
-`metl_global`, `saprot_dg`, `esm3_dg`. Confirm them against the method's own
+Four currently have unconfirmed directions: `thermompnn`, `metl_global`,
+`saprot_dg`, `esm3_dg`. Confirm them against the method's own
 documentation before trusting a benchmark. A unit test pins all 36 directions,
 so a change is deliberate rather than accidental.
 
@@ -315,8 +315,8 @@ a token exported as `HF_TOKEN`. Create one at
 licence at <https://huggingface.co/EvolutionaryScale/esm3-sm-open-v1>, then
 `export HF_TOKEN=hf_...`.
 
-Keep every credential out of the repository. `HF_TOKEN`, `FOLDX_BINARY` and
-`DDMUT_ENDPOINT` are read from the environment precisely so that nothing has
+Keep every credential out of the repository. `HF_TOKEN` and `FOLDX_BINARY`
+are read from the environment precisely so that nothing has
 to be written into a tracked file. If a token is ever pasted somewhere it
 might be read, revoke it at the same settings page and issue a new one; tokens
 cannot be un-shared.
@@ -340,7 +340,7 @@ real `User-Agent`.
   traceback. Neither affects the others.
 - A predictor never invents a score. A variant an upstream tool did not score
   is written empty, not zero.
-- FoldX and DDMut cache per variant, so an interrupted saturation scan resumes.
+- FoldX caches per variant, so an interrupted saturation scan resumes.
 
 ## Reproducibility
 

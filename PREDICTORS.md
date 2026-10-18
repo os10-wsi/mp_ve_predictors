@@ -43,7 +43,7 @@ model rather than five.
 
 ## Membrane proteins
 
-Every stability predictor here (FoldX, RaSP, ThermoMPNN, DDMut and the two dG
+Every stability predictor here (FoldX, RaSP, ThermoMPNN and the two dG
 heads) and both inverse-folding models were trained or parameterised largely
 on soluble, globular proteins. For a membrane protein their scores are out of
 distribution, and a lipid-facing residue looks to them like exposed
@@ -453,7 +453,6 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 
 | Predictor | Needs | Output | Direction | Confirmed | GPU | VRAM | Supervised | Megascale | ProteinGym | Environment |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `ddmut` | structure | ddG_kcal_mol | more tolerated | **no** | no | - | no | no | no | `ddmut` |
 | `esm3_dg` | structure | ddG_kcal_mol | more deleterious | **no** | recommended | 8 GB | yes | yes | no | `stability_dg` |
 | `esm3_dg_masked_marginal` | structure | log_likelihood_ratio | more tolerated | yes | recommended | 7 GB | no | no | no | `esm` |
 | `foldx` | structure | ddG_kcal_mol | more deleterious | yes | no | - | no | no | no | `foldx` |
@@ -464,18 +463,6 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 
 
 ### Details
-
-#### `ddmut` — DDMut
-
-- **Paper**: Zhou Y, Pan Q, Pires DEV, Rodrigues CHM, Ascher DB. DDMut: predicting effects of mutations on protein stability using deep learning. Nucleic Acids Res 2023;51:W122-W128
-- **Code**: https://biosig.lab.uq.edu.au/ddmut/
-- **Licence**: Free for academic use; web service, code not distributed
-- **Model version**: DDMut web service
-- **Score**: ddG_kcal_mol, higher is more tolerated
-- **Convention source**: The mCSM and DDMut family from the Ascher lab reports positive ddG as stabilising, the opposite of Rosetta and FoldX. This was NOT confirmed against DDMut's own documentation; confirm with `vepbench check-conventions` before benchmarking.
-- **Install**: `python3 -m vepbench install-env ddmut`
-- **Status here**: environment `ddmut` is not installed
-- **Notes**: Served as a web API rather than as code, so runs depend on the public server and are rate limited. A saturation scan submits many jobs; the runner throttles and caches per variant. Set DDMUT_ENDPOINT for a local deployment.
 
 #### `esm3_dg` — ESM3-dG (absolute stability predictor)
 

@@ -209,11 +209,6 @@ register_env(EnvSpec(
     notes="The ESM3 half needs the EvolutionaryScale licence.",
 ))
 register_env(EnvSpec(
-    name="ddmut", python="3.11",
-    description="DDMut client. DDMut is served as a web API rather than as code.",
-    notes="Set DDMUT_ENDPOINT for a local deployment; the public server is rate limited.",
-))
-register_env(EnvSpec(
     name="foldx", python="3.11",
     description="FoldX driver. The FoldX binary is licensed and is not distributed here.",
     notes="Set FOLDX_BINARY, and FOLDX_ROTABASE if your version needs rotabase.txt.",
@@ -462,7 +457,6 @@ VERIFY_IMPORTS: dict[str, tuple[str, ...]] = {
     "promep": ("torch", "dgl"),
     "metl": ("torch", "metl"),
     "stability_dg": ("torch", "transformers", "peft"),
-    "ddmut": ("requests",),
     "foldx": ("pandas",),
 }
 

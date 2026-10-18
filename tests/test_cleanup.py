@@ -53,7 +53,9 @@ def populated(bare):
     made["results"] = put(paths.outputs / "P26678" / "predictions_long.csv")
     # Expensive things that must never be touched.
     made["weights"] = put(paths.weights / "huggingface" / "hub" / "blob")
-    made["envs"] = put(paths.envs / "esm" / ".venv" / "bin" / "python")
+    made["venv"] = put(paths.envs / "esm" / ".venv" / "bin" / "python")
+    made["definition"] = put(paths.envs / "esm" / "requirements.txt")
+    made["uv_cache"] = put(paths.uv_cache / "archive-v0" / "pkg" / "f")
     made["third_party"] = put(paths.third_party / "foldseek" / "bin" / "foldseek")
     made["env_pycache"] = put(
         paths.envs / "esm" / ".venv" / "lib" / "__pycache__" / "torch.pyc"
@@ -68,8 +70,8 @@ def clean(names, paths):
 class TestWhatSurvives:
     def test_defaults_leave_everything_expensive(self, bare, populated):
         clean(list(DEFAULT_CATEGORIES), bare)
-        for key in ("predictions", "inputs", "results", "weights", "envs",
-                    "third_party"):
+        for key in ("predictions", "inputs", "results", "weights", "venv",
+                    "definition", "uv_cache", "third_party"):
             assert populated[key].exists(), f"{key} should have survived"
 
     def test_defaults_remove_the_scratch(self, bare, populated):
@@ -91,6 +93,22 @@ class TestWhatSurvives:
         clean(["results"], bare)
         assert not populated["results"].exists()
         assert populated["weights"].exists()
+
+    def test_all_spares_the_built_environments(self, bare, populated):
+        """Rebuilding them is an install each; `all` must not mean that."""
+        clean([n for n in CATEGORIES if n not in ("results", "venvs")], bare)
+        assert populated["venv"].exists()
+
+    def test_venvs_go_only_when_named_and_keep_the_definitions(self, bare, populated):
+        clean(["venvs"], bare)
+        assert not populated["venv"].exists()
+        assert populated["definition"].exists(), "the definition is in git, keep it"
+        assert (bare.envs / "esm").is_dir()
+
+    def test_the_uv_cache_is_its_own_category(self, bare, populated):
+        clean(["uv-cache"], bare)
+        assert not populated["uv_cache"].exists()
+        assert populated["venv"].exists()
 
     def test_no_category_can_reach_a_protected_directory(self):
         assert not set(CATEGORIES) & set(PROTECTED)
@@ -133,3 +151,17 @@ class TestSurvey:
 ])
 def test_human_sizes(nbytes, expected):
     assert human(nbytes) == expected
+
+
+class TestInodeAccounting:
+    """On a quota'd filesystem the file count runs out before the bytes do."""
+
+    def test_counts_files_not_just_bytes(self, bare, populated):
+        """The venv fixture holds bin/python and a lib/__pycache__ entry."""
+        (found,) = survey(["venvs"], paths=bare)
+        assert found.nbytes == 64
+        assert found.inodes == 6, "the .venv dir, two files, and three dirs"
+
+    def test_a_single_file_is_one_inode(self, bare, populated):
+        (found,) = survey(["inputs"], paths=bare)
+        assert found.inodes == 1

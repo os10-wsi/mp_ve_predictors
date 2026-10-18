@@ -38,6 +38,10 @@ class Found:
     category: str
     paths: list[Path] = field(default_factory=list)
     nbytes: int = 0
+    #: Files, not just bytes. On a quota'd project filesystem the file count
+    #: is usually what runs out first: one torch environment is about 38,000
+    #: of them, and the error names whichever small file was unlucky.
+    inodes: int = 0
 
     @property
     def count(self) -> int:
@@ -49,6 +53,13 @@ def _size(path: Path) -> int:
         return path.stat().st_size
     return sum(f.stat().st_size for f in path.rglob("*")
                if f.is_file() and not f.is_symlink())
+
+
+def _inodes(path: Path) -> int:
+    """Files and directories, which is what a filesystem quota counts."""
+    if path.is_file():
+        return 1
+    return 1 + sum(1 for _ in path.rglob("*"))
 
 
 def _work(paths: Paths) -> list[Path]:
@@ -91,6 +102,23 @@ def _inputs(paths: Paths) -> list[Path]:
     return found
 
 
+def _venvs(paths: Paths) -> list[Path]:
+    """Built environments, keeping their definitions.
+
+    Separate from the environment definitions, which are version-controlled
+    and tiny. Rebuilding one costs an install; keeping one you will not use
+    costs about 38,000 files against the quota.
+    """
+    if not paths.envs.is_dir():
+        return []
+    return sorted(p / ".venv" for p in paths.envs.glob("*") if (p / ".venv").is_dir())
+
+
+def _uv_cache(paths: Paths) -> list[Path]:
+    """uv's package cache. Removing it makes the next install re-download."""
+    return [paths.uv_cache] if paths.uv_cache.is_dir() else []
+
+
 def _results(paths: Paths) -> list[Path]:
     """The predictions themselves. Never in any default."""
     if not paths.outputs.is_dir():
@@ -113,12 +141,18 @@ CATEGORIES: dict[str, tuple[str, str, bool, object]] = {
                "network time, and the alignments take minutes each", False, _inputs),
     "results": ("the prediction tables under outputs/<accession>",
                 "THE ACTUAL RESULTS of every run", False, _results),
+    "venvs": ("built environments under envs/<name>/.venv",
+              "an install each, but they hold ~38,000 files apiece", False, _venvs),
+    "uv-cache": ("uv's package cache",
+                 "re-downloading packages; it is also what lets uv hardlink "
+                 "instead of copying into each environment", False, _uv_cache),
 }
 
 #: Deleting these is never this command's job. Weights are tens of gigabytes
-#: and doctor already prints an exact, checked rm for duplicates; environments
-#: are rebuilt with install-env.
-PROTECTED = ("weights", "envs", "third_party", "databases")
+#: and doctor already prints an exact, checked rm for duplicates. Environment
+#: *definitions* are version-controlled and tiny; the built venvs under them
+#: are a category of their own, named `venvs`.
+PROTECTED = ("weights", "definitions", "third_party", "databases")
 
 DEFAULT_CATEGORIES = tuple(k for k, v in CATEGORIES.items() if v[2])
 
@@ -141,6 +175,7 @@ def survey(names: list[str], paths: Paths = PATHS, older_than_days: int = 0) -> 
         results.append(Found(
             category=name, paths=paths_found,
             nbytes=sum(_size(p) for p in paths_found),
+            inodes=sum(_inodes(p) for p in paths_found),
         ))
     return results
 

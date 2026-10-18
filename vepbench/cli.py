@@ -187,7 +187,7 @@ def command_clean(args: argparse.Namespace) -> int:
     if "all" in wanted:
         # Still not results: losing a finished run to a tidy-up is not a
         # tidy-up. It has to be asked for by name.
-        wanted = [n for n in CATEGORIES if n != "results"]
+        wanted = [n for n in CATEGORIES if n not in ("results", "venvs")]
     unknown = [n for n in wanted if n not in CATEGORIES]
     if unknown:
         print(f"ERROR: unknown categor(y/ies): {', '.join(unknown)}. "
@@ -207,11 +207,12 @@ def command_clean(args: argparse.Namespace) -> int:
         if not entry.count:
             continue
         description, cost = describe(entry.category)
-        print(f"  {entry.category:12s} {entry.count:5d} item(s)  "
-              f"{human(entry.nbytes):>9s}  {description}")
+        print(f"  {entry.category:12s} {entry.count:4d} item(s)  "
+              f"{human(entry.nbytes):>9s}  {entry.inodes:>9,d} files  {description}")
         if entry.category not in DEFAULT_CATEGORIES:
             print(f"  {'':12s} costs to recreate: {cost}")
-    print(f"  {'total':12s} {count:5d} item(s)  {human(total):>9s}")
+    files = sum(f.inodes for f in found)
+    print(f"  {'total':12s} {count:4d} item(s)  {human(total):>9s}  {files:>9,d} files")
 
     if args.dry_run:
         print("\n--dry-run: nothing removed.")

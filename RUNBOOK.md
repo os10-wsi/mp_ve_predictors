@@ -351,10 +351,13 @@ skips the prompt. The categories are deliberately not interchangeable:
 | `predictions` | no | GPU time: every predictor reruns |
 | `inputs` | no | network time; alignments take minutes each |
 | `results` | no | **the actual output of every run** |
+| `venvs` | no | an install each; ~38,000 files apiece |
+| `uv-cache` | no | re-downloading, and uv's ability to hardlink |
 
-`--what all` covers everything except `results`, which has to be named. Model
-weights, environments, `third_party/` and the sequence databases are never
-touched: for duplicate weights, `doctor` prints an exact `rm` it has checked.
+`--what all` covers everything except `results` and `venvs`, which have to be
+named. Model weights, the environment *definitions* in git, `third_party/`
+and the sequence databases are never touched: for duplicate weights, `doctor`
+prints an exact `rm` it has checked.
 
 ## 7. Alignments
 
@@ -479,10 +482,23 @@ The column that matters is `files`, not `kbytes`. Two things help most:
   every file twice and counts it twice. If you see uv warn "Failed to
   hardlink files", that is what is happening; `doctor` reports it too.
 - **Remove environments you are not going to use.** Each torch-based one is
-  several gigabytes and roughly 40,000 files: `rm -rf envs/<name>/.venv`.
+  about 6 GB and 38,000 files. `rm -rf envs/<name>/.venv` for one, keeping
+  its definition; `python3 -m vepbench clean --what venvs` for all of them.
 
-`python3 -m vepbench clean` frees scratch but very few inodes; it is the
-environments and the uv cache that hold them.
+`clean` reports file counts beside sizes, because the count is what runs
+out:
+
+```bash
+python3 -m vepbench clean --what venvs uv-cache --dry-run
+```
+
+Neither `venvs` nor `results` is included in `--what all`: rebuilding an
+environment is an install, and results are the point of the run. Both have
+to be named.
+
+Budget roughly 38,000 files per torch environment. All eighteen is about
+690,000, which is more than many project quotas allow, so install the ones
+you need rather than everything.
 
 ### If a download runs out of space
 

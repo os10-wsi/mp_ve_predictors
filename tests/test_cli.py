@@ -108,6 +108,38 @@ def test_install_env_rejects_a_typo_before_building(capsys):
     assert "esm:" not in capsys.readouterr().out
 
 
+def test_clean_lists_categories_and_their_cost(capsys):
+    assert main(["clean", "--list"]) == 0
+    out = capsys.readouterr().out
+    assert "costs to recreate" in out
+    assert "never touched: weights" in out
+
+
+def test_clean_dry_run_removes_nothing(workspace, capsys):
+    tmp_path, cli = workspace
+    scratch = tmp_path / "data" / "cache" / "work" / "P26678"
+    scratch.mkdir(parents=True)
+    (scratch / "scores.csv").write_text("x")
+    assert cli.main(["clean", "--dry-run"]) == 0
+    assert "nothing removed" in capsys.readouterr().out
+    assert (scratch / "scores.csv").exists()
+
+
+def test_clean_rejects_a_protected_directory(workspace, capsys):
+    _tmp_path, cli = workspace
+    assert cli.main(["clean", "--what", "weights", "--dry-run"]) == 2
+    assert "unknown categor" in capsys.readouterr().out
+
+
+def test_clean_all_still_spares_the_results(workspace, capsys):
+    tmp_path, cli = workspace
+    results = tmp_path / "outputs" / "P26678"
+    results.mkdir(parents=True)
+    (results / "predictions_long.csv").write_text("x")
+    assert cli.main(["clean", "--what", "all", "--yes"]) == 0
+    assert (results / "predictions_long.csv").exists()
+
+
 def test_shared_flags_work_after_the_subcommand(capsys):
     """`vepbench list -q` must parse as readily as `vepbench -q list`."""
     assert main(["list", "-q"]) == 0

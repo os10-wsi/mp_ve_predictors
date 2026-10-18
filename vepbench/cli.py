@@ -148,6 +148,74 @@ def command_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_clean(args: argparse.Namespace) -> int:
+    """Remove generated files, by category, after showing what and how much."""
+    from vepbench.cleanup import (
+        CATEGORIES,
+        DEFAULT_CATEGORIES,
+        PROTECTED,
+        describe,
+        human,
+        remove,
+        survey,
+    )
+
+    if args.list:
+        print("categories (* = included by default):")
+        for name in CATEGORIES:
+            description, cost = describe(name)
+            mark = "*" if name in DEFAULT_CATEGORIES else " "
+            print(f"  {mark} {name:12s} {description}")
+            print(f"    {'':12s} costs to recreate: {cost}")
+        print(f"\nnever touched: {', '.join(PROTECTED)}")
+        return 0
+
+    wanted = args.what or list(DEFAULT_CATEGORIES)
+    if "all" in wanted:
+        # Still not results: losing a finished run to a tidy-up is not a
+        # tidy-up. It has to be asked for by name.
+        wanted = [n for n in CATEGORIES if n != "results"]
+    unknown = [n for n in wanted if n not in CATEGORIES]
+    if unknown:
+        print(f"ERROR: unknown categor(y/ies): {', '.join(unknown)}. "
+              f"Try `{VEPBENCH} clean --list`.")
+        return 2
+
+    found = survey(wanted, paths=PATHS, older_than_days=args.older_than)
+    total = sum(f.nbytes for f in found)
+    count = sum(f.count for f in found)
+    if not count:
+        print("nothing to clean")
+        return 0
+
+    window = f" older than {args.older_than} day(s)" if args.older_than else ""
+    print(f"would remove{window}:")
+    for entry in found:
+        if not entry.count:
+            continue
+        description, cost = describe(entry.category)
+        print(f"  {entry.category:12s} {entry.count:5d} item(s)  "
+              f"{human(entry.nbytes):>9s}  {description}")
+        if entry.category not in DEFAULT_CATEGORIES:
+            print(f"  {'':12s} costs to recreate: {cost}")
+    print(f"  {'total':12s} {count:5d} item(s)  {human(total):>9s}")
+
+    if args.dry_run:
+        print("\n--dry-run: nothing removed.")
+        return 0
+    if not args.yes:
+        try:
+            answer = input("\nremove these? [y/N] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes"):
+            print("nothing removed.")
+            return 0
+    removed = remove(found)
+    print(f"removed {removed} item(s), freeing {human(total)}")
+    return 0
+
+
 def command_prefetch(args: argparse.Namespace) -> int:
     """Download and cache every input a later run will need.
 
@@ -529,6 +597,22 @@ def build_parser() -> argparse.ArgumentParser:
     # -v/--verbose is inherited from the shared parent parser; passing it
     # also lists the checks that already pass, not just the failures.
     doctor.set_defaults(func=command_doctor)
+
+    clean = sub.add_parser(
+        "clean",
+        help="remove generated scratch, job scripts and logs",
+    )
+    clean.add_argument("--what", nargs="+", metavar="CATEGORY",
+                       help="categories to remove, or 'all' (never results); "
+                            "default: the ones that cost nothing to recreate")
+    clean.add_argument("--older-than", type=int, default=0, metavar="DAYS",
+                       help="only remove items last modified over DAYS ago")
+    clean.add_argument("--list", action="store_true",
+                       help="show the categories and what each costs to recreate")
+    clean.add_argument("--dry-run", action="store_true",
+                       help="show what would go, remove nothing")
+    clean.add_argument("--yes", "-y", action="store_true", help="skip the prompt")
+    clean.set_defaults(func=command_clean)
 
     prefetch = sub.add_parser(
         "prefetch",

@@ -320,6 +320,35 @@ something was not staged, rather than hanging.
 Point `VEPBENCH_DATA` at shared storage so both nodes see the same cache, and
 set `HF_HOME` to a shared path too if the weights live there.
 
+## 6c. Clearing up
+
+A run leaves scratch in `data/cache/work/`, and every submission leaves a job
+script and a pair of logs in `outputs/jobs/`. None of it is cleaned up on its
+own:
+
+```bash
+python3 -m vepbench clean                      # the free-to-recreate things
+python3 -m vepbench clean --dry-run            # show what would go
+python3 -m vepbench clean --list               # categories and what each costs
+python3 -m vepbench clean --older-than 30      # keep the recent logs
+```
+
+It prints what it found with sizes and asks before removing anything; `--yes`
+skips the prompt. The categories are deliberately not interchangeable:
+
+| category | default | costs to recreate |
+|---|---|---|
+| `work` | yes | nothing; the next run rebuilds it |
+| `jobs`, `logs` | yes | the record of what was submitted and printed |
+| `pycache` | yes | nothing |
+| `predictions` | no | GPU time: every predictor reruns |
+| `inputs` | no | network time; alignments take minutes each |
+| `results` | no | **the actual output of every run** |
+
+`--what all` covers everything except `results`, which has to be named. Model
+weights, environments, `third_party/` and the sequence databases are never
+touched: for duplicate weights, `doctor` prints an exact `rm` it has checked.
+
 ## 7. Alignments
 
 The default backend is the ColabFold MMseqs2 server, which needs nothing

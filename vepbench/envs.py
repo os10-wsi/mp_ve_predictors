@@ -378,7 +378,15 @@ def create_env(
     """Create the environment and install its pinned requirements."""
     directory = spec.directory(paths)
     if not directory.exists():
-        raise EnvError(f"no environment definition at {directory}")
+        # The definition is version-controlled, so a registered environment
+        # with no directory means the checkout lost it rather than that the
+        # environment does not exist. Say which, and how to get it back.
+        raise EnvError(
+            f"no environment definition at {directory}. {spec.name!r} is a known "
+            f"environment, so this is missing from the checkout rather than "
+            f"unsupported. Restore it with `git checkout -- envs/{spec.name}` "
+            f"(or `git pull` if you are behind), then check `git status envs/`."
+        )
     chosen = resolve_backend(backend)
 
     venv = spec.venv(paths)

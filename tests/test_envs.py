@@ -397,3 +397,12 @@ class TestBackendDiscovery:
     def test_the_error_says_where_it_looked(self, installed):
         with pytest.raises(EnvError, match=str(installed)):
             resolve_backend()
+
+
+def test_a_deleted_definition_says_how_to_restore_it(paths, monkeypatch):
+    """The definitions are tracked, so a missing one is a checkout problem."""
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/uv")
+    spec = get_env("eve")
+    assert not spec.directory(paths).exists()
+    with pytest.raises(EnvError, match=r"git checkout -- envs/eve"):
+        create_env(spec, paths=paths)

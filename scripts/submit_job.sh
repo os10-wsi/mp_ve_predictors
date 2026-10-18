@@ -5,6 +5,11 @@
 #   bash scripts/submit_job.sh --uniprot P26678 --predictors esm2_650m saprot
 #   bash scripts/submit_job.sh --uniprot-list ids.txt --predictors ready
 #   bash scripts/submit_job.sh --uniprot P26678 --dry-run   # print, do not submit
+#   bash scripts/submit_job.sh --uniprot P26678 --queue gpu-huge
+#
+# The GPU queue is read from `bqueues -gpu` rather than guessed: queue names
+# differ between clusters, and LSF's esub rejects a -gpu job sent to a queue
+# that has no GPUs without saying which queues do.
 #
 # Writes a self-contained job script under outputs/jobs/ and submits it with
 # bsub. The script is kept, so you can read what ran, edit it and resubmit by
@@ -26,7 +31,8 @@ ACCESSIONS=()
 LIST=""
 PREDICTORS=()
 FEATURES=()
-QUEUE="${VEPBENCH_QUEUE:-gpu-normal}"
+QUEUE="${VEPBENCH_QUEUE:-}"          # empty means: work it out from bqueues
+GPU_SPEC="${VEPBENCH_GPU_SPEC:-num=%d:mode=shared}"
 CORES=4
 MEM_MB=32000
 WALLTIME="4:00"
@@ -45,10 +51,11 @@ while [ $# -gt 0 ]; do
     --predictors)    shift; while [ $# -gt 0 ] && [[ "$1" != --* ]]; do PREDICTORS+=("$1"); shift; done ;;
     --features)      shift; while [ $# -gt 0 ] && [[ "$1" != --* ]]; do FEATURES+=("$1"); shift; done ;;
     --queue)         QUEUE="$2"; shift 2 ;;
+    --gpu-spec)      GPU_SPEC="$2"; shift 2 ;;
     --cores)         CORES="$2"; shift 2 ;;
     --mem)           MEM_MB="$2"; shift 2 ;;
     --time)          WALLTIME="$2"; shift 2 ;;
-    --no-gpu)        GPUS=0; QUEUE="${VEPBENCH_CPU_QUEUE:-normal}"; shift ;;
+    --no-gpu)        GPUS=0; shift ;;
     --gpus)          GPUS="$2"; shift 2 ;;
     --name)          NAME="$2"; shift 2 ;;
     --dry-run)       DRY_RUN=1; shift ;;
@@ -68,6 +75,51 @@ if [ -n "$LIST" ] && [ ! -f "$LIST" ]; then
   exit 2
 fi
 if [ ${#PREDICTORS[@]} -eq 0 ]; then PREDICTORS=(all); fi
+
+# Queue names are site-specific. Guessing one and having esub reject the job
+# wastes a round trip, and the error does not say which names are valid, so
+# ask LSF. An explicit --queue is still honoured, but checked.
+list_queues() {   # list_queues [-gpu]
+  command -v bqueues >/dev/null 2>&1 || return 1
+  bqueues "$@" 2>/dev/null | awk 'NR > 1 && $3 == "Open:Active" { print $1 }'
+}
+
+if [ "$GPUS" -gt 0 ]; then
+  AVAILABLE="$(list_queues -gpu || true)"
+  if [ -z "$QUEUE" ]; then
+    # bqueues lists in decreasing priority, so the first open one is LSF's
+    # own preference. Show the rest: the top queue is not always the one
+    # that starts soonest.
+    QUEUE="$(printf '%s\n' "$AVAILABLE" | head -n1)"
+    if [ -n "$QUEUE" ]; then
+      OTHERS="$(printf '%s\n' "$AVAILABLE" | tail -n +2 | tr '\n' ' ')"
+      echo "GPU queue: $QUEUE (from bqueues -gpu)"
+      if [ -n "${OTHERS// /}" ]; then echo "  others open: $OTHERS(--queue to pick one)"; fi
+    elif command -v bqueues >/dev/null 2>&1; then
+      echo "error: bqueues -gpu lists no queue that is Open:Active." >&2
+      echo "  Pass --queue NAME, or --no-gpu to run on CPU." >&2
+      exit 2
+    elif [ "$DRY_RUN" = "1" ]; then
+      # Previewing off-cluster. Make the gap obvious rather than inventing
+      # a name that would be rejected at submit time.
+      QUEUE="REPLACE-WITH-A-GPU-QUEUE"
+      echo "note: bqueues is not on PATH, so the queue could not be looked up." >&2
+      echo "      The printed bsub line has a placeholder; run this on a submit" >&2
+      echo "      host, or pass --queue NAME." >&2
+    else
+      echo "error: bqueues is not on PATH, so this is not an LSF submit host." >&2
+      echo "  Pass --queue NAME, or run the job script directly." >&2
+      exit 2
+    fi
+  elif [ -n "$AVAILABLE" ] && ! printf '%s\n' "$AVAILABLE" | grep -qxF "$QUEUE"; then
+    echo "error: '$QUEUE' is not an open GPU queue on this cluster." >&2
+    echo "  GPU queues here: $(printf '%s ' $AVAILABLE)" >&2
+    echo "  Submitting a -gpu job to a non-GPU queue is rejected by esub." >&2
+    exit 2
+  fi
+else
+  if [ -z "$QUEUE" ]; then QUEUE="${VEPBENCH_CPU_QUEUE:-normal}"; fi
+fi
 
 # The interpreter that can import vepbench here is the one the job should use.
 # A bare `python` does not exist on many systems, and `python3` outside an
@@ -173,7 +225,10 @@ BSUB=(bsub -J "$NAME" -q "$QUEUE" -n "$CORES"
       -W "$WALLTIME"
       -o "$LOG_DIR/${NAME}-${STAMP}.%J.out"
       -e "$LOG_DIR/${NAME}-${STAMP}.%J.err")
-if [ "$GPUS" -gt 0 ]; then BSUB+=(-gpu "num=$GPUS:mode=shared"); fi
+if [ "$GPUS" -gt 0 ]; then
+  # shellcheck disable=SC2059  # the %d is the caller's, from --gpu-spec
+  BSUB+=(-gpu "$(printf "$GPU_SPEC" "$GPUS")")
+fi
 BSUB+=(bash "$JOB_SCRIPT")
 
 echo

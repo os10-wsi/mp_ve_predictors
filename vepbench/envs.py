@@ -117,6 +117,26 @@ def register_env(spec: EnvSpec) -> EnvSpec:
     return spec
 
 
+def env_profiles() -> dict[str, list[str]]:
+    """Environment sets, named after the predictor categories they serve.
+
+    Derived from the registry rather than listed separately, so adding a
+    predictor cannot leave a profile quietly out of date. Intended for a
+    filesystem whose inode quota holds only a few environments at a time:
+    install one profile, run it, swap it for the next. Cached predictions
+    survive the swap, so the results accumulate.
+    """
+    # Deferred: predictors imports this module, so a top-level import here
+    # would be circular.
+    from vepbench.predictors import REGISTRY  # noqa: PLC0415
+
+    profiles: dict[str, set[str]] = {}
+    for predictor in REGISTRY.values():
+        if predictor.spec.env:
+            profiles.setdefault(predictor.spec.category, set()).add(predictor.spec.env)
+    return {name: sorted(envs) for name, envs in sorted(profiles.items())}
+
+
 def get_env(name: str) -> EnvSpec:
     if name not in ENVIRONMENTS:
         raise EnvError(f"unknown environment {name!r}; known: {sorted(ENVIRONMENTS)}")

@@ -162,15 +162,26 @@ def describe(name: str) -> tuple[str, str]:
     return description, cost
 
 
-def survey(names: list[str], paths: Paths = PATHS, older_than_days: int = 0) -> list[Found]:
-    """What would be removed, and how much space it is using."""
+def survey(
+    names: list[str], paths: Paths = PATHS, older_than_days: int = 0,
+    keep: list[str] | None = None,
+) -> list[Found]:
+    """What would be removed, and how much space it is using.
+
+    ``keep`` spares named environments from the `venvs` category, which is
+    how a set of environments is swapped for another on a filesystem that
+    cannot hold them all at once.
+    """
     cutoff = time.time() - older_than_days * 86400 if older_than_days else None
+    spared = set(keep or ())
     results = []
     for name in names:
         _, _, _, finder = CATEGORIES[name]
         paths_found = [
             p for p in finder(paths)
-            if cutoff is None or p.stat().st_mtime < cutoff
+            if (cutoff is None or p.stat().st_mtime < cutoff)
+            # envs/<name>/.venv -> <name>
+            and not (name == "venvs" and p.parent.name in spared)
         ]
         results.append(Found(
             category=name, paths=paths_found,

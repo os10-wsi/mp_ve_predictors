@@ -165,3 +165,27 @@ class TestInodeAccounting:
     def test_a_single_file_is_one_inode(self, bare, populated):
         (found,) = survey(["inputs"], paths=bare)
         assert found.inodes == 1
+
+
+class TestKeepingEnvironments:
+    """Swapping one set of environments for another, on a tight quota."""
+
+    def test_named_environments_are_spared(self, bare, populated):
+        for name in ("eve", "proteinmpnn"):
+            venv = bare.envs / name / ".venv" / "bin"
+            venv.mkdir(parents=True)
+            (venv / "python").write_text("x")
+        remove(survey(["venvs"], paths=bare, keep=["eve"]))
+        assert (bare.envs / "eve" / ".venv").is_dir()
+        assert not (bare.envs / "proteinmpnn" / ".venv").exists()
+        assert not populated["venv"].exists()
+
+    def test_keeping_nothing_removes_everything(self, bare, populated):
+        remove(survey(["venvs"], paths=bare, keep=[]))
+        assert not populated["venv"].exists()
+
+    def test_keep_does_not_leak_into_other_categories(self, bare, populated):
+        """`--keep esm` must not spare an unrelated file called esm."""
+        remove(survey(["work", "venvs"], paths=bare, keep=["esm"]))
+        assert populated["venv"].exists(), "envs/esm/.venv is the one to keep"
+        assert not populated["work"].exists()

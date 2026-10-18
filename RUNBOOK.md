@@ -386,6 +386,58 @@ named. Model weights, the environment *definitions* in git, `third_party/`
 and the sequence databases are never touched: for duplicate weights, `doctor`
 prints an exact `rm` it has checked.
 
+## 6d. Running more predictors than the quota holds at once
+
+A torch environment is about 38,000 files. On a project filesystem with a
+file quota you cannot raise, only a few fit at a time, which looks like a
+hard limit on how many predictors you can run.
+
+It is not, because **a cached prediction outlives its environment**. The
+cache key covers the sequence, the structure, the alignment and the
+predictor's options — not whether anything is installed. So a later run
+re-emits earlier results as `cached` and writes them into the same
+`predictions_wide.csv` alongside the new ones. There is no merge step: the
+cache is the merge.
+
+So run in passes:
+
+```bash
+# pass 1: what you already have, as usual
+bash scripts/submit_job.sh --uniprot-list ids.txt --predictors all --mem 16000
+
+# pass 2: swap the environments once pass 1 has finished
+python3 -m vepbench clean --what venvs --keep-profile evolutionary
+python3 -m vepbench install-env --profile evolutionary
+bash scripts/submit_job.sh --uniprot-list ids.txt --predictors all --mem 16000
+```
+
+The second submission recomputes only the newly installed predictors.
+Everything from pass 1 comes back from the cache in seconds, and each
+protein's table ends up holding both passes.
+
+Profiles are the environments a predictor category needs, derived from the
+registry so they cannot drift:
+
+```bash
+python3 -m vepbench install-env --list-profiles
+python3 -m vepbench install-env --profile evolutionary     # install a set
+python3 -m vepbench clean --what venvs --keep eve evcouplings   # or name them
+```
+
+Three things to hold to across passes, or the cache will miss and the work
+will be redone:
+
+- **The same `--msa-backend`.** The alignment's filename is part of the key
+  for predictors that use one.
+- **The same structure.** Passing `--pdb` in one pass and not the next
+  changes the key for structure-based predictors.
+- **Do not pass `--force`.** It bypasses the cache, which is the opposite of
+  what these passes rely on.
+
+`clean --what venvs` removes built environments only. Their definitions are
+version-controlled and stay, as do `data/cache/predictions/`, the weights
+and every `outputs/<accession>/` table.
+
 ## 7. Alignments
 
 The default backend is the ColabFold MMseqs2 server, which needs nothing

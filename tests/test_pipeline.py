@@ -270,3 +270,62 @@ def test_feature_inputs_are_declared():
     assert inputs_for_features(["entropy", "gaps"]) == {"msa"}
     assert inputs_for_features(["physchem", "blosum"]) == set()
     assert inputs_for_features(list(ALL_FEATURES)) == {"structure", "msa"}
+
+
+class TestSwappingEnvironments:
+    """Results must accumulate across runs that cannot coexist.
+
+    On a filesystem whose inode quota holds only a few environments at a
+    time, the way to get every predictor is to install a set, run it, remove
+    it, install the next and run again. That only works if a cached result
+    outlives its environment and reappears in the later run's table, so
+    there is no separate merge step to get wrong.
+    """
+
+    def test_a_cached_result_survives_its_environment_going_away(
+        self, paths, structure_path, monkeypatch
+    ):
+        first = run_protein(ACCESSION, _config(paths, structure_path,
+                                               ["blosum62_baseline"]))
+        assert first.outcomes[0].status == STATUS_OK
+
+        # Every environment is now missing, as after `clean --what venvs`.
+        monkeypatch.setattr("vepbench.envs.EnvSpec.is_installed", lambda self, p: False)
+        second = run_protein(ACCESSION, _config(paths, structure_path,
+                                                ["blosum62_baseline"]))
+        assert second.outcomes[0].status == STATUS_CACHED
+        assert "blosum62_baseline" in second.wide_frame.columns
+        assert len(second.wide_frame) == len(first.wide_frame)
+
+    def test_a_later_run_carries_the_earlier_predictors_too(
+        self, paths, structure_path
+    ):
+        """The second pass's table holds both, which is the merge."""
+        run_protein(ACCESSION, _config(paths, structure_path, ["blosum62_baseline"]))
+        both = run_protein(ACCESSION, _config(
+            paths, structure_path, ["blosum62_baseline", "pssm_independent"]))
+        statuses = {o.predictor if hasattr(o, "predictor") else o.name: o.status
+                    for o in both.outcomes}
+        assert statuses["blosum62_baseline"] == STATUS_CACHED
+        assert "blosum62_baseline" in both.wide_frame.columns
+
+    def test_the_cache_does_not_depend_on_the_environment(self, paths, structure_path):
+        """The fingerprint covers inputs, not installation state.
+
+        If it covered the environment, removing one would silently discard
+        every result it had produced.
+        """
+        from vepbench.predictors import REGISTRY
+        from vepbench.protein import ProteinContext
+        from vepbench.runner import _fingerprint
+        from vepbench.uniprot import fetch_uniprot
+
+        record = fetch_uniprot(ACCESSION, paths=paths, offline=True)
+        protein = ProteinContext(uniprot=record, work_dir=paths.cache / "w")
+        config = _config(paths, structure_path, ["blosum62_baseline"])
+        before = _fingerprint(REGISTRY["blosum62_baseline"], protein, config)
+
+        for name in ("esm", "huggingface", "eve"):
+            (paths.envs / name / ".venv").mkdir(parents=True, exist_ok=True)
+        after = _fingerprint(REGISTRY["blosum62_baseline"], protein, config)
+        assert before == after

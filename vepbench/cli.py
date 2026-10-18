@@ -174,12 +174,59 @@ def command_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _categories_to_clean(requested: list[str] | None) -> list[str]:
+    """Expand `all`, which never includes results or built environments.
+
+    Losing a finished run or an hour of installing to a tidy-up is not a
+    tidy-up, so both have to be asked for by name.
+    """
+    from vepbench.cleanup import CATEGORIES, DEFAULT_CATEGORIES
+
+    wanted = list(requested or DEFAULT_CATEGORIES)
+    if "all" in wanted:
+        wanted = [n for n in CATEGORIES if n not in ("results", "venvs")]
+    unknown = [n for n in wanted if n not in CATEGORIES]
+    if unknown:
+        raise KeyError(
+            f"unknown categor(y/ies): {', '.join(unknown)}. "
+            f"Try `{VEPBENCH} clean --list`."
+        )
+    return wanted
+
+
+def _environments_to_keep(
+    names: list[str] | None, profiles: list[str] | None
+) -> list[str]:
+    """Environment names spared from a venv cleanup, expanding profiles."""
+    from vepbench.envs import env_profiles
+
+    keep = list(names or [])
+    available = env_profiles()
+    for profile in profiles or []:
+        if profile not in available:
+            raise KeyError(
+                f"unknown profile {profile!r}. Known: {', '.join(available)}"
+            )
+        keep += available[profile]
+    return keep
+
+
+def _print_clean_categories() -> None:
+    from vepbench.cleanup import CATEGORIES, DEFAULT_CATEGORIES, PROTECTED, describe
+
+    print("categories (* = included by default):")
+    for name in CATEGORIES:
+        description, cost = describe(name)
+        mark = "*" if name in DEFAULT_CATEGORIES else " "
+        print(f"  {mark} {name:12s} {description}")
+        print(f"    {'':12s} costs to recreate: {cost}")
+    print(f"\nnever touched: {', '.join(PROTECTED)}")
+
+
 def command_clean(args: argparse.Namespace) -> int:
     """Remove generated files, by category, after showing what and how much."""
     from vepbench.cleanup import (
-        CATEGORIES,
         DEFAULT_CATEGORIES,
-        PROTECTED,
         describe,
         human,
         remove,
@@ -187,27 +234,18 @@ def command_clean(args: argparse.Namespace) -> int:
     )
 
     if args.list:
-        print("categories (* = included by default):")
-        for name in CATEGORIES:
-            description, cost = describe(name)
-            mark = "*" if name in DEFAULT_CATEGORIES else " "
-            print(f"  {mark} {name:12s} {description}")
-            print(f"    {'':12s} costs to recreate: {cost}")
-        print(f"\nnever touched: {', '.join(PROTECTED)}")
+        _print_clean_categories()
         return 0
 
-    wanted = args.what or list(DEFAULT_CATEGORIES)
-    if "all" in wanted:
-        # Still not results: losing a finished run to a tidy-up is not a
-        # tidy-up. It has to be asked for by name.
-        wanted = [n for n in CATEGORIES if n not in ("results", "venvs")]
-    unknown = [n for n in wanted if n not in CATEGORIES]
-    if unknown:
-        print(f"ERROR: unknown categor(y/ies): {', '.join(unknown)}. "
-              f"Try `{VEPBENCH} clean --list`.")
+    try:
+        wanted = _categories_to_clean(args.what)
+        keep = _environments_to_keep(args.keep, args.keep_profile)
+    except KeyError as exc:
+        print(f"ERROR: {exc.args[0]}")
         return 2
-
-    found = survey(wanted, paths=PATHS, older_than_days=args.older_than)
+    found = survey(wanted, paths=PATHS, older_than_days=args.older_than, keep=keep)
+    if keep and "venvs" in wanted:
+        print(f"keeping: {', '.join(sorted(set(keep)))}")
     total = sum(f.nbytes for f in found)
     count = sum(f.count for f in found)
     if not count:
@@ -454,7 +492,23 @@ def command_check_conventions(args: argparse.Namespace) -> int:
 
 
 def command_install_env(args: argparse.Namespace) -> int:
-    from vepbench.envs import ENVIRONMENTS, EnvError, create_env, get_env, resolve_backend
+    from vepbench.envs import (
+        ENVIRONMENTS,
+        EnvError,
+        create_env,
+        env_profiles,
+        get_env,
+        resolve_backend,
+    )
+
+    profiles = env_profiles()
+    if args.list_profiles:
+        print("profiles (install one set at a time on a tight inode quota):")
+        for name, envs in profiles.items():
+            print(f"  {name:18s} {' '.join(envs)}")
+        print("\nCached predictions survive removing an environment, so results "
+              "from\nseparate runs accumulate in the same output table.")
+        return 0
 
     try:
         backend = resolve_backend(args.backend)
@@ -463,8 +517,18 @@ def command_install_env(args: argparse.Namespace) -> int:
 
     # Several names in one call: building one environment at a time is the
     # common case, but installing a group should not need a loop in the shell.
+    requested_names = list(args.names)
+    for profile in args.profile or []:
+        if profile not in profiles:
+            raise SystemExit(
+                f"unknown profile {profile!r}. Known: {', '.join(profiles)}"
+            )
+        requested_names += profiles[profile]
+    if not requested_names:
+        raise SystemExit("give an environment name, or --profile, or 'all'")
+
     names: list[str] = []
-    for requested in args.names:
+    for requested in requested_names:
         for name in (sorted(ENVIRONMENTS) if requested == "all" else [requested]):
             if name not in names:
                 names.append(name)
@@ -635,6 +699,10 @@ def build_parser() -> argparse.ArgumentParser:
     clean.add_argument("--what", nargs="+", metavar="CATEGORY",
                        help="categories to remove, or 'all' (never results); "
                             "default: the ones that cost nothing to recreate")
+    clean.add_argument("--keep", nargs="+", metavar="ENV",
+                       help="environments to spare when removing venvs")
+    clean.add_argument("--keep-profile", nargs="+", metavar="NAME",
+                       help="spare every environment in these profiles")
     clean.add_argument("--older-than", type=int, default=0, metavar="DAYS",
                        help="only remove items last modified over DAYS ago")
     clean.add_argument("--list", action="store_true",
@@ -689,8 +757,13 @@ def build_parser() -> argparse.ArgumentParser:
     conventions.set_defaults(func=command_check_conventions)
 
     install = sub.add_parser("install-env", help="create an isolated predictor environment")
-    install.add_argument("names", nargs="+", metavar="NAME",
+    install.add_argument("names", nargs="*", metavar="NAME",
                          help="one or more environment names, or 'all'")
+    install.add_argument("--profile", nargs="+", metavar="NAME",
+                         help="install the environments a predictor category "
+                              "needs, e.g. evolutionary")
+    install.add_argument("--list-profiles", action="store_true",
+                         help="show the profiles and what each contains")
     install.add_argument("--backend", choices=["uv", "conda", "mamba", "micromamba"],
                          help="how to build the environment (default: uv if present, "
                               "otherwise micromamba, mamba or conda; or set "

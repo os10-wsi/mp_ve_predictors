@@ -147,6 +147,55 @@ def check_environments(names: list[str], paths: Paths = PATHS) -> list[Check]:
     return checks
 
 
+# The ESM checkpoints are fetched by their own script, because it runs inside
+# the `esm` environment rather than the `huggingface` one. Keyed by repository
+# prefix so the five ESM-1v replicates share an entry. A test asserts every
+# repository here is one download_weights_esm.sh actually knows.
+ESM_WEIGHT_TARGETS = (
+    ("facebook/esm1v_t33_650M_UR90S_", "esm1v", "12.5 GB"),
+    ("facebook/esm2_t33_650M_UR50D", "esm2", "2.5 GB"),
+    ("facebook/esm2_t36_3B_UR50D", "esm2-3b", "11 GB"),
+)
+
+HF_CATALOGUE_SCRIPT = "scripts/download_weights_huggingface.sh"
+ESM_SCRIPT = "scripts/download_weights_esm.sh"
+
+
+def hf_catalogue(paths: Paths = PATHS) -> dict[str, tuple[str, str]]:
+    """Parse the download script's catalogue: repository -> (target, size).
+
+    Read from the script rather than restated here, so the two cannot drift
+    into disagreeing about what exists.
+    """
+    script = paths.root / HF_CATALOGUE_SCRIPT
+    entries: dict[str, tuple[str, str]] = {}
+    if not script.is_file():
+        return entries
+    for line in script.read_text().splitlines():
+        line = line.strip()
+        if not (line.startswith('"') and line.endswith('"') and line.count(":") == 3):
+            continue
+        name, repo, size, _env = line.strip('"').split(":")
+        entries[repo] = (name, f"{size} GB")
+    return entries
+
+
+def download_command(repo: str, paths: Paths = PATHS) -> str:
+    """The command that actually fetches this checkpoint.
+
+    Naming the wrong script is worse than naming none: the reader runs it, it
+    reports success having fetched something else, and the gap is still there.
+    """
+    for prefix, target, size in ESM_WEIGHT_TARGETS:
+        if repo.startswith(prefix):
+            return f"bash {ESM_SCRIPT} {target}    # {size}"
+    catalogue = hf_catalogue(paths)
+    if repo in catalogue:
+        target, size = catalogue[repo]
+        return f"bash {HF_CATALOGUE_SCRIPT} {target}    # {size}"
+    return f"no download script covers {repo}; it is fetched on first use"
+
+
 def check_weights(names: list[str], paths: Paths = PATHS) -> list[Check]:
     checks = []
     seen: set[str] = set()
@@ -160,7 +209,7 @@ def check_weights(names: list[str], paths: Paths = PATHS) -> list[Check]:
                 name=f"weights {repo}",
                 status=OK if cached else MISSING,
                 detail="cached" if cached else "not downloaded",
-                fix="" if cached else "bash scripts/download_weights_huggingface.sh all",
+                fix="" if cached else download_command(repo, paths),
             ))
     return checks
 

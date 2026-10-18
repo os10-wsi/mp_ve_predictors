@@ -108,6 +108,18 @@ def test_install_env_rejects_a_typo_before_building(capsys):
     assert "esm:" not in capsys.readouterr().out
 
 
+def test_doctor_names_the_script_that_fetches_each_checkpoint(
+    bare_checkout, capsys, monkeypatch
+):
+    """Not a blanket `download_weights_huggingface.sh all`, which cannot
+    fetch the ESM checkpoints at all."""
+    monkeypatch.setattr("vepbench.envs.EnvSpec.is_installed", lambda self, p: True)
+    bare_checkout.main(["doctor", "--predictors", "esm2_3b"])
+    out = capsys.readouterr().out
+    assert "download_weights_esm.sh esm2-3b" in out
+    assert "download_weights_huggingface.sh all" not in out
+
+
 def test_clean_lists_categories_and_their_cost(capsys):
     assert main(["clean", "--list"]) == 0
     out = capsys.readouterr().out

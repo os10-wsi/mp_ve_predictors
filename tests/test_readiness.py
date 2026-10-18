@@ -15,6 +15,7 @@ import pytest
 
 from vepbench import VEPBENCH
 from vepbench.readiness import (
+    ESM_WEIGHT_TARGETS,
     MISSING,
     OK,
     WARNING,
@@ -24,6 +25,8 @@ from vepbench.readiness import (
     check_legacy_cache,
     check_msa_database,
     check_weights,
+    download_command,
+    hf_catalogue,
     environments_for,
     hf_cache_root,
     hf_model_cached,
@@ -343,3 +346,70 @@ class TestBundledBinaries:
         monkeypatch.setattr("vepbench.envs.PATHS", paths)
         env = runner_environment()
         assert real_shutil.which("foldseek", path=env["PATH"]) == str(foldseek)
+
+
+class TestDownloadCommands:
+    """doctor must name the script that actually fetches the checkpoint.
+
+    It used to print `download_weights_huggingface.sh all` for everything,
+    including ESM-2 3B, which that script has never heard of. The reader runs
+    it, it succeeds having fetched other models, and the gap is still there.
+    """
+
+    def repo_for(self, predictor):
+        (repo,) = model_identifiers(predictor)
+        return repo
+
+    def test_esm_models_point_at_the_esm_script(self):
+        command = download_command(self.repo_for("esm2_3b"))
+        assert "download_weights_esm.sh esm2-3b" in command
+        assert "huggingface" not in command
+
+    def test_the_five_esm1v_replicates_share_one_target(self):
+        commands = {
+            download_command(f"facebook/esm1v_t33_650M_UR90S_{n}").split("#")[0]
+            for n in range(1, 6)
+        }
+        assert len(commands) == 1
+        assert "esm1v" in commands.pop()
+
+    def test_hugging_face_models_name_their_own_target(self):
+        command = download_command(self.repo_for("saprot"))
+        assert "download_weights_huggingface.sh saprot" in command
+
+    def test_an_unknown_repository_says_so_rather_than_guessing(self):
+        assert "no download script covers" in download_command("nobody/nothing")
+
+    def test_the_catalogue_is_read_from_the_script(self, paths):
+        """Parsed, not restated, so the two cannot drift apart."""
+        catalogue = hf_catalogue()
+        assert catalogue, "the catalogue should not parse as empty"
+        script = (Path(__file__).parent.parent
+                  / "scripts" / "download_weights_huggingface.sh").read_text()
+        for repo, (target, _size) in catalogue.items():
+            assert repo in script
+            assert f'"{target}:{repo}:' in script
+
+    def test_every_esm_target_is_one_the_script_accepts(self):
+        script = (Path(__file__).parent.parent
+                  / "scripts" / "download_weights_esm.sh").read_text()
+        for prefix, target, _size in ESM_WEIGHT_TARGETS:
+            assert f"  {target})" in script or f"{target})" in script, target
+            assert prefix in script, prefix
+
+    def test_every_checkpoint_any_predictor_needs_is_covered(self):
+        """The property that actually matters: no predictor is left stranded."""
+        from vepbench.predictors import REGISTRY
+
+        uncovered = [
+            repo for name in REGISTRY for repo in model_identifiers(name)
+            if "no download script covers" in download_command(repo)
+        ]
+        assert not uncovered, f"no download command for: {uncovered}"
+
+    def test_every_command_states_a_size(self):
+        from vepbench.predictors import REGISTRY
+
+        for name in REGISTRY:
+            for repo in model_identifiers(name):
+                assert "GB" in download_command(repo), repo

@@ -105,7 +105,13 @@ def command_run(args: argparse.Namespace) -> int:
 
 def command_doctor(args: argparse.Namespace) -> int:
     """Report whether everything needed for a run is actually in place."""
-    from vepbench.readiness import MISSING, OK, WARNING, assess
+    from vepbench.readiness import (
+        MISSING,
+        OK,
+        WARNING,
+        assess,
+        download_command,
+    )
 
     try:
         result = assess(args.predictors, msa_backend=args.msa_backend,
@@ -132,9 +138,16 @@ def command_doctor(args: argparse.Namespace) -> int:
     if result.needs_download:
         print(f"\n{len(result.needs_download)} installed but will download weights "
               f"on first use (so they need a network, and will fail under --offline):")
+        commands = []
         for name, repos in sorted(result.needs_download.items()):
             print(f"  {name:28s} {', '.join(repos)}")
-        print("  fetch them ahead of time: bash scripts/download_weights_huggingface.sh all")
+            for repo in repos:
+                command = download_command(repo, PATHS)
+                if command not in commands:
+                    commands.append(command)
+        print("  fetch them ahead of time:")
+        for command in commands:
+            print(f"    {command}")
 
     if result.blocked:
         print(f"\n{len(result.blocked)} blocked:")

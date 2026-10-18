@@ -247,9 +247,56 @@ automatically. Useful flags:
 Re-running is cheap: finished predictors are cached per protein against a
 fingerprint of their inputs.
 
-## 6a. On a cluster with no network on the compute nodes
+## 6a. Submitting to LSF
 
-Stage every input on the login node, then run with `--offline`:
+```bash
+bash scripts/submit_job.sh --uniprot P26678
+bash scripts/submit_job.sh --uniprot P26678 --predictors esm1v_full esm2_650m saprot
+bash scripts/submit_job.sh --uniprot-list ids.txt --dry-run      # print, submit nothing
+```
+
+It writes a self-contained job script under `outputs/jobs/`, prints it with
+the `bsub` line, and submits. The script is kept, so you can read exactly what
+ran, edit it and resubmit by hand without the wrapper.
+
+Two things it does that a hand-written `bsub` line usually forgets. It runs
+`doctor` first, so a missing environment costs a second rather than a place in
+the queue (`--skip-doctor` to submit anyway). And it pins `VEPBENCH_*` and
+`HF_HOME` to absolute paths resolved on the submit host, so the job cannot
+fall back to `$HOME` on the compute node and fill a small quota.
+
+| flag | default | |
+|---|---|---|
+| `--predictors` | `all` | unavailable ones are skipped with a reason |
+| `--features` | the default set | |
+| `--queue` | `gpu-normal` | or `$VEPBENCH_QUEUE` |
+| `--no-gpu` | | switches to `$VEPBENCH_CPU_QUEUE`, default `normal` |
+| `--gpus` | 1 | |
+| `--cores` | 4 | |
+| `--mem` | 32000 | MB |
+| `--time` | `4:00` | |
+| `--name` | `vepbench-<accession>` | also names the logs |
+| `--dry-run` | | print the job script and the `bsub` line, submit nothing |
+| `-- ...` | | everything after `--` is passed through to `vepbench run` |
+
+If the compute nodes need `module load` or anything else before Python, put
+those lines in a file and point `VEPBENCH_JOB_PRELUDE` at it; the contents are
+inlined at the top of the job script:
+
+```bash
+printf 'module load cuda/12.1\n' > ~/vepbench-prelude.sh
+VEPBENCH_JOB_PRELUDE=~/vepbench-prelude.sh bash scripts/submit_job.sh --uniprot P26678
+```
+
+Logs land in `outputs/jobs/logs/<name>-<stamp>.<jobid>.{out,err}`. The job
+prints its host and GPU first, and ends with `vepbench status`, so the tail of
+the log says what succeeded.
+
+## 6b. On a cluster with no network on the compute nodes
+
+If the compute nodes are firewalled, stage every input on the login node
+first and run with `--offline`. `submit_job.sh` assumes they are not; add
+`-- --offline` to its arguments once the inputs are staged.
 
 ```bash
 # login node: fetches sequences, structures and alignments into data/cache/

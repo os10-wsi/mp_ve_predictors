@@ -171,8 +171,8 @@ def hf_catalogue(paths: Paths = PATHS) -> dict[str, tuple[str, str]]:
     entries: dict[str, tuple[str, str]] = {}
     if not script.is_file():
         return entries
-    for line in script.read_text().splitlines():
-        line = line.strip()
+    for raw in script.read_text().splitlines():
+        line = raw.strip()
         if not (line.startswith('"') and line.endswith('"') and line.count(":") == 3):
             continue
         name, repo, size, _env = line.strip('"').split(":")

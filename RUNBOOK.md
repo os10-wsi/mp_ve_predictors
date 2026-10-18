@@ -132,6 +132,13 @@ bash scripts/download_weights_huggingface.sh all    # SaProt, ProSST, ProtT5, An
 bash scripts/download_weights_tranception.sh        # 3.1 GB
 ```
 
+Note that `all` means all of *that script's* catalogue. The ESM checkpoints
+come from `download_weights_esm.sh`, which runs inside the `esm` environment,
+and the rest from `download_weights_huggingface.sh`, which runs inside
+`huggingface`; neither can fetch the other's models. `doctor` prints the
+right command for each missing checkpoint, with its size, rather than one
+blanket command that only covers some of them.
+
 Each states its size and asks before downloading; `VEPBENCH_ASSUME_YES=1`
 skips the prompt. Hugging Face weights land in `HF_HOME`, so set that if you
 want them somewhere specific, and set the same value when you run.

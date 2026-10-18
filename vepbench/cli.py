@@ -366,8 +366,23 @@ def command_install_env(args: argparse.Namespace) -> int:
     except EnvError as exc:
         raise SystemExit(str(exc)) from exc
 
-    names = sorted(ENVIRONMENTS) if args.name == "all" else [args.name]
-    print(f"building environments with {backend}")
+    # Several names in one call: building one environment at a time is the
+    # common case, but installing a group should not need a loop in the shell.
+    names: list[str] = []
+    for requested in args.names:
+        for name in (sorted(ENVIRONMENTS) if requested == "all" else [requested]):
+            if name not in names:
+                names.append(name)
+    unknown = [n for n in names if n not in ENVIRONMENTS]
+    if unknown:
+        # Check all of them before building any, so a typo in the last name
+        # is not discovered after twenty minutes of downloads.
+        raise SystemExit(
+            f"unknown environment(s): {', '.join(unknown)}. "
+            f"Known: {', '.join(sorted(ENVIRONMENTS))}"
+        )
+
+    print(f"building {len(names)} environment(s) with {backend}")
     failed: list[str] = []
     for name in names:
         spec = get_env(name)
@@ -560,7 +575,8 @@ def build_parser() -> argparse.ArgumentParser:
     conventions.set_defaults(func=command_check_conventions)
 
     install = sub.add_parser("install-env", help="create an isolated predictor environment")
-    install.add_argument("name", help="environment name, or 'all'")
+    install.add_argument("names", nargs="+", metavar="NAME",
+                         help="one or more environment names, or 'all'")
     install.add_argument("--backend", choices=["uv", "conda", "mamba", "micromamba"],
                          help="how to build the environment (default: uv if present, "
                               "otherwise micromamba, mamba or conda; or set "

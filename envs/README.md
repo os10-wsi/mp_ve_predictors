@@ -27,6 +27,7 @@ and `hmmer` for the local alignment backend.
 ```
 python3 -m vepbench install-env esm            # one environment
 python3 -m vepbench install-env all            # everything (slow, large)
+python3 -m vepbench install-env eve gemme rasp  # or several at once
 python3 -m vepbench install-env all --dry-run  # just print what each one is
 python3 -m vepbench status                     # which are installed
 ```

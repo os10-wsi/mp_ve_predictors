@@ -187,6 +187,7 @@ rather than making you guess:
 
 ```bash
 python3 -m vepbench install-env esm     # ~3 GB; add --backend conda if you prefer
+# several at once: python3 -m vepbench install-env esm huggingface proteinmpnn
 vepbench run --uniprot P26678 --predictors esm2_650m --msa-backend none
 ```
 

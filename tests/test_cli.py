@@ -78,6 +78,36 @@ def test_install_env_dry_run(capsys):
     assert "ESM-1v" in capsys.readouterr().out
 
 
+def test_install_env_accepts_several_names(capsys):
+    assert main(["install-env", "esm", "proteinmpnn", "gemme", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "3 environment(s)" in out
+    for name in ("esm:", "proteinmpnn:", "gemme:"):
+        assert name in out
+
+
+def test_install_env_all_still_expands(capsys):
+    from vepbench.envs import ENVIRONMENTS
+
+    assert main(["install-env", "all", "--dry-run"]) == 0
+    assert f"{len(ENVIRONMENTS)} environment(s)" in capsys.readouterr().out
+
+
+def test_install_env_does_not_build_anything_twice(capsys):
+    """`all` plus a name it already covers is one build, not two."""
+    from vepbench.envs import ENVIRONMENTS
+
+    assert main(["install-env", "esm", "all", "--dry-run"]) == 0
+    assert f"{len(ENVIRONMENTS)} environment(s)" in capsys.readouterr().out
+
+
+def test_install_env_rejects_a_typo_before_building(capsys):
+    """A bad name in the list must not surface after the earlier downloads."""
+    with pytest.raises(SystemExit, match="mtel"):
+        main(["install-env", "esm", "mtel", "proteinmpnn", "--dry-run"])
+    assert "esm:" not in capsys.readouterr().out
+
+
 def test_shared_flags_work_after_the_subcommand(capsys):
     """`vepbench list -q` must parse as readily as `vepbench -q list`."""
     assert main(["list", "-q"]) == 0

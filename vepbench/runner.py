@@ -30,6 +30,13 @@ from vepbench import VEPBENCH
 from vepbench.config import RunConfig, cache_key, write_json
 from vepbench.features import DEFAULT_FEATURES, build_features, inputs_for_features
 from vepbench.msa import MSAError, build_msa
+from vepbench.outputs import (
+    load_existing_long,
+    merge_long,
+    merge_status_entries,
+    output_lock,
+    write_csv,
+)
 from vepbench.predictors import REGISTRY, resolve_names
 from vepbench.predictors.base import Predictor
 from vepbench.protein import ProteinContext
@@ -299,29 +306,62 @@ def run_protein(uniprot_id: str, config: RunConfig) -> RunResult:
     long_frame = concat_long(frames)
     feature_frame = build_features(protein, variants,
                                    config.features or list(DEFAULT_FEATURES))
-    wide_frame = to_wide(long_frame, feature_frame)
 
     output_dir = config.paths.output_dir(uniprot_id)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    long_frame.to_csv(output_dir / "predictions_long.csv", index=False)
-    wide_frame.to_csv(output_dir / "predictions_wide.csv", index=False)
-
     metadata = build_metadata(protein, config, outcomes, time.time() - started,
                               len(variants))
-    write_json(output_dir / "metadata.json", metadata)
-    write_json(output_dir / "status.json", {
-        "uniprot_id": uniprot_id, "generated": time.time(),
-        "predictors": [o.as_dict() for o in outcomes],
-        "counts": {
-            "ok": sum(1 for o in outcomes if o.status == STATUS_OK),
-            "cached": sum(1 for o in outcomes if o.status == STATUS_CACHED),
-            "unavailable": sum(1 for o in outcomes if o.status == STATUS_UNAVAILABLE),
-            "failed": sum(1 for o in outcomes if o.status == STATUS_FAILED),
-        },
-    })
+
+    # Merge onto whatever earlier runs left here rather than replacing it, so a
+    # run of one predictor adds a column instead of removing the rest. The lock
+    # covers the whole read-modify-write: another run on this protein may be
+    # about to do the same thing.
+    with output_lock(output_dir):
+        long_path = output_dir / "predictions_long.csv"
+        previous = load_existing_long(long_path, protein.sequence)
+        long_frame = merge_long(previous, long_frame)
+        wide_frame = to_wide(long_frame, feature_frame)
+        recovered = sorted(set(previous["predictor"].unique())
+                           - {o.name for o in outcomes}) if len(previous) else []
+        if recovered:
+            log.info("kept %d predictor(s) from earlier runs: %s",
+                     len(recovered), ", ".join(recovered))
+
+        write_csv(long_path, long_frame)
+        write_csv(output_dir / "predictions_wide.csv", wide_frame)
+
+        write_json(output_dir / "metadata.json", metadata)
+        write_json(output_dir / "status.json",
+                   _status_payload(uniprot_id, outcomes, output_dir / "status.json"))
 
     return RunResult(uniprot_id=uniprot_id, long_frame=long_frame, wide_frame=wide_frame,
                      outcomes=outcomes, metadata=metadata, output_dir=output_dir)
+
+
+def _status_payload(uniprot_id: str, outcomes: list[PredictorOutcome], path: Path) -> dict:
+    """Record this run's outcomes alongside the ones already on file.
+
+    `vepbench status` reads these to tell "never tried" apart from "tried and
+    failed". A narrow run that replaced the list would make every predictor it
+    did not request look untried.
+    """
+    previous: list[dict] = []
+    if path.exists():
+        try:
+            previous = json.loads(path.read_text()).get("predictors", [])
+        except (OSError, ValueError) as exc:
+            log.warning("could not read %s (%s); recording this run's results only",
+                        path, exc)
+    entries = merge_status_entries(previous, [o.as_dict() for o in outcomes])
+    return {
+        "uniprot_id": uniprot_id, "generated": time.time(),
+        "predictors": entries,
+        "counts": {
+            "ok": sum(1 for e in entries if e["status"] == STATUS_OK),
+            "cached": sum(1 for e in entries if e["status"] == STATUS_CACHED),
+            "unavailable": sum(1 for e in entries if e["status"] == STATUS_UNAVAILABLE),
+            "failed": sum(1 for e in entries if e["status"] == STATUS_FAILED),
+        },
+    }
 
 
 def build_metadata(

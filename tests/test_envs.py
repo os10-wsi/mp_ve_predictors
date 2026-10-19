@@ -424,3 +424,43 @@ def test_an_explicit_uv_cache_is_respected(paths, monkeypatch, tmp_path):
 
     monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "mine"))
     assert uv_environment(paths)["UV_CACHE_DIR"] == str(tmp_path / "mine")
+
+
+class TestCondaChannels:
+    """conda must not reach for `defaults`.
+
+    That channel is repo.anaconda.com, which many institutions block or do
+    not resolve since Anaconda's terms changed for organisations. An install
+    then dies on DNS failures that look like a network outage rather than a
+    channel configuration problem.
+    """
+
+    def commands(self, monkeypatch, tmp_path):
+        from vepbench.config import Paths
+        from vepbench.envs import _create_with_conda, get_env
+
+        recorded = []
+        monkeypatch.setattr("vepbench.envs.which_backend", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr("subprocess.run",
+                            lambda cmd, **kw: recorded.append(cmd) or type("R", (), {})())
+        paths = Paths(root=tmp_path)
+        spec = get_env("gemme")          # has conda-packages.txt
+        spec.directory(paths).mkdir(parents=True, exist_ok=True)
+        spec.conda_packages(paths).write_text("openjdk>=11\n")
+        _create_with_conda(spec, paths, spec.venv(paths), "conda")
+        return recorded
+
+    def test_every_call_overrides_the_channels(self, monkeypatch, tmp_path):
+        recorded = self.commands(monkeypatch, tmp_path)
+        assert recorded, "no conda commands were issued"
+        for command in recorded:
+            assert "--override-channels" in command, command
+
+    def test_only_conda_forge_and_bioconda_are_used(self, monkeypatch, tmp_path):
+        from vepbench.envs import CONDA_CHANNELS
+
+        for command in self.commands(monkeypatch, tmp_path):
+            named = [command[i + 1] for i, part in enumerate(command) if part == "-c"]
+            assert named, command
+            assert set(named) <= set(CONDA_CHANNELS)
+            assert "defaults" not in named

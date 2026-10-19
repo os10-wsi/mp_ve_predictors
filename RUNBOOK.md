@@ -558,6 +558,32 @@ python3 -m vepbench doctor --predictors <the ones you asked for>
 | a weight download stalls | `export HF_HUB_DISABLE_XET=1` is already set for runners |
 | an upstream repo moved | the runner prints the upstream error; the install script names the repo |
 
+### If conda cannot resolve repo.anaconda.com
+
+```
+CondaHTTPError: HTTP 000 CONNECTION FAILED for url
+  <https://repo.anaconda.com/pkgs/main/linux-64/repodata.json>
+Failed to resolve 'repo.anaconda.com'
+```
+
+That host is the `defaults` channel. Many institutions block it or leave it
+unresolvable, because Anaconda's terms changed for organisations.
+`install-env --backend conda` passes `--override-channels` so only
+conda-forge and bioconda are used, and neither is on that host.
+
+If you hit this from your own conda commands rather than through vepbench,
+`defaults` is coming from your `~/.condarc`:
+
+```bash
+conda config --remove channels defaults
+conda config --add channels conda-forge
+conda config --set channel_priority strict
+```
+
+An `environment.yaml` from an upstream repository often lists `defaults`
+too, in which case add `--override-channels -c conda-forge` to the command
+or edit the file.
+
 ### If everything runs but is tens of times too slow
 
 Almost certainly torch is on the CPU. PyPI ships one torch wheel per

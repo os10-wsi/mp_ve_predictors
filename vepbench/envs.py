@@ -355,7 +355,13 @@ def _create_with_uv(spec: EnvSpec, paths: Paths, venv: Path) -> None:
 
 def _create_with_conda(spec: EnvSpec, paths: Paths, venv: Path, backend: str) -> None:
     conda = which_backend(backend)
-    channels: list[str] = []
+    # --override-channels so only CONDA_CHANNELS are consulted. Without it
+    # conda also reads `defaults` from the user's condarc, which lives on
+    # repo.anaconda.com: a host many institutions block or do not resolve,
+    # since Anaconda's terms changed for organisations. Everything these
+    # environments need is on conda-forge and bioconda, which are served
+    # from a different host.
+    channels: list[str] = ["--override-channels"]
     for channel in CONDA_CHANNELS:
         channels += ["-c", channel]
 

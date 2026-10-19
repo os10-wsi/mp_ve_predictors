@@ -518,8 +518,25 @@ Nothing stops the run. Each predictor is either `ok`, `cached`, `unavailable`
 with a reason, or `failed` with its traceback, all recorded in `status.json`:
 
 ```bash
-vepbench status --uniprot Q9NRX5
+vepbench status --uniprot Q9NRX5     # one protein, predictor by predictor
+vepbench status --all                # every predictor across every protein run
 ```
+
+`--all` is the one to reach for after a batch. `doctor` reports what is
+installed, which is not the same as what works: a predictor can pass every
+check and still fail at run time on an upstream layout change. `--all` tallies
+what actually happened, with the first reason given for anything that did not
+produce a score:
+
+```
+predictor                      ok  cached  failed  unavail  why
+esm2_650m                      57       0       0        0
+proteinmpnn                     0       0      57        0  No module named 'protein_mpnn_utils'
+eve_full                        0       0       0       57  requires msa, which was not provided
+```
+
+Predictors with a score for every protein come first, then partial ones, then
+those that never produced anything.
 
 Most failures are install-time rather than run-time, so start with the
 pre-flight check (section 3c), which names the fix for each:

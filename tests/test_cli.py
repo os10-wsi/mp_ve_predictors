@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -543,3 +544,57 @@ class TestRootDiscovery:
         outside.mkdir()
         # The installed package's own checkout, or the directory asked about.
         assert self.found_from(outside) in (outside, Path(__file__).parent.parent)
+
+
+class TestStatusAcrossProteins:
+    """What actually ran, which is not what doctor says is installed."""
+
+    def write(self, outputs, accession, entries):
+        import json as _json
+
+        directory = outputs / accession
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "status.json").write_text(
+            _json.dumps({"counts": {}, "predictors": entries})
+        )
+
+    def test_no_runs_says_so(self, bare_checkout, capsys):
+        assert bare_checkout.main(["status", "--all"]) == 0
+        assert "no runs yet" in capsys.readouterr().out
+
+    def test_it_tallies_across_proteins(self, bare_checkout, capsys, tmp_path):
+        outputs = Path(os.environ["VEPBENCH_OUTPUTS"])
+        for accession in ("P00001", "P00002"):
+            self.write(outputs, accession, [
+                {"predictor": "esm2_650m", "status": "ok"},
+                {"predictor": "proteinmpnn", "status": "failed",
+                 "message": "No module named 'protein_mpnn_utils'"},
+            ])
+        assert bare_checkout.main(["status", "--all"]) == 0
+        out = capsys.readouterr().out
+        assert "2 protein(s)" in out
+        assert "protein_mpnn_utils" in out, "the reason must be shown"
+        assert "1 predictor(s) have a score for every protein" in out
+
+    def test_a_partial_predictor_is_called_out(self, bare_checkout, capsys):
+        outputs = Path(os.environ["VEPBENCH_OUTPUTS"])
+        self.write(outputs, "P00001", [{"predictor": "esm2_650m", "status": "ok"}])
+        self.write(outputs, "P00002", [{"predictor": "esm2_650m", "status": "failed",
+                                        "message": "out of memory"}])
+        bare_checkout.main(["status", "--all"])
+        out = capsys.readouterr().out
+        assert "have some but not all: esm2_650m" in out
+
+    def test_cached_counts_as_having_a_score(self, bare_checkout, capsys):
+        """A cached result is a result; it is how passes accumulate."""
+        outputs = Path(os.environ["VEPBENCH_OUTPUTS"])
+        self.write(outputs, "P00001", [{"predictor": "esm2_650m", "status": "cached"}])
+        bare_checkout.main(["status", "--all"])
+        assert "1 predictor(s) have a score for every protein" in capsys.readouterr().out
+
+    def test_the_jobs_directory_is_not_a_protein(self, bare_checkout, capsys):
+        outputs = Path(os.environ["VEPBENCH_OUTPUTS"])
+        (outputs / "jobs").mkdir(parents=True, exist_ok=True)
+        self.write(outputs, "P00001", [{"predictor": "esm2_650m", "status": "ok"}])
+        bare_checkout.main(["status", "--all"])
+        assert "1 protein(s)" in capsys.readouterr().out

@@ -80,7 +80,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 5 GB
 - **Install**: `python3 -m vepbench install-env huggingface`
-- **Status here**: environment `huggingface` is not installed
+- **Environment**: `huggingface`
 - **Notes**: Same caveat as ProtT5: a denoising reconstruction likelihood used as a baseline rather than an authored variant-effect score.
 
 #### `esm1v_domain` — ESM-1v (domain only, 5-model ensemble)
@@ -93,7 +93,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Meier et al. 2021 (NeurIPS), masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 3 GB
 - **Install**: `python3 -m vepbench install-env esm`
-- **Status here**: environment `esm` is installed
+- **Environment**: `esm`
 - **Notes**: Scores only the chosen domain window, with the model seeing the domain sequence alone. For a membrane protein the window defaults to the span of the UniProt transmembrane segments; override with --domain.
 
 #### `esm1v_full` — ESM-1v (full length, 5-model ensemble)
@@ -106,7 +106,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Meier et al. 2021 (NeurIPS), masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 3 GB
 - **Install**: `python3 -m vepbench install-env esm`
-- **Status here**: environment `esm` is installed
+- **Environment**: `esm`
 - **Notes**: ESM-1v has a 1022-residue context. Longer proteins are tiled, each position scored in the window where it is most central, and the window used is written to the per-member CSV. Replicates are loaded one at a time, so peak memory is one 650M model, not five.
 
 #### `esm2_3b` — ESM-2 3B
@@ -119,7 +119,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Meier et al. 2021 (NeurIPS), masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 13 GB
 - **Install**: `python3 -m vepbench install-env esm`
-- **Status here**: environment `esm` is installed
+- **Environment**: `esm`
 - **Notes**: Needs roughly 13 GB of VRAM in float32 and about 7 GB in float16. Pass --dtype float16 on a smaller card, or --device cpu to trade speed for memory.
 
 #### `esm2_650m` — ESM-2 650M
@@ -132,7 +132,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Meier et al. 2021 (NeurIPS), masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 3 GB
 - **Install**: `python3 -m vepbench install-env esm`
-- **Status here**: environment `esm` is installed
+- **Environment**: `esm`
 - **Notes**: Likelihood-ratio baseline; the same 1022-residue tiling applies.
 
 #### `esm3_open` — ESM3 (open small, 1.4B)
@@ -145,7 +145,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Meier et al. 2021 (NeurIPS), masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 7 GB
 - **Install**: `Accept the licence at huggingface.co/EvolutionaryScale/esm3-sm-open-v1, export HF_TOKEN, then install-env esm`
-- **Status here**: environment `esm` is installed
+- **Environment**: `esm`
 - **Notes**: Sequence-track masked marginals. The structure track can be added as conditioning, which changes the score, so it is off here and exposed separately as esm3_dg_masked_marginal.
 
 #### `esmc_600m` — ESM C 600M
@@ -158,7 +158,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Meier et al. 2021 (NeurIPS), masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 3 GB
 - **Install**: `python3 -m vepbench install-env esm, then export HF_TOKEN`
-- **Status here**: environment `esm` is installed
+- **Environment**: `esm`
 - **Notes**: Likelihood-ratio score from the ESM Cambrian encoder. Gated on Hugging Face, so HF_TOKEN must be set.
 
 #### `prosst` — ProSST 2048
@@ -171,7 +171,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 2 GB
 - **Install**: `python3 -m vepbench install-env huggingface`
-- **Status here**: environment `huggingface` is not installed
+- **Environment**: `huggingface`
 - **Notes**: Quantises local structure into a discrete vocabulary, then scores with disentangled attention over sequence and structure tokens.
 
 #### `prott5` — ProtT5-XL UniRef50
@@ -184,7 +184,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 6 GB
 - **Install**: `python3 -m vepbench install-env huggingface`
-- **Status here**: environment `huggingface` is not installed
+- **Environment**: `huggingface`
 - **Notes**: An encoder-decoder trained with span denoising, so a reconstruction likelihood at a sentinel token stands in for a masked-LM head. That is a baseline of this repository's choosing, not a scheme the ProtT5 authors proposed for variant effects.
 
 #### `saprot` — SaProt 650M (AF2 structural alphabet)
@@ -197,7 +197,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 3 GB
 - **Install**: `python3 -m vepbench install-env huggingface && bash scripts/install_foldseek.sh`
-- **Status here**: environment `huggingface` is not installed
+- **Environment**: `huggingface`
 - **Notes**: Each token pairs a residue with its Foldseek 3Di structural letter, so a structure is mandatory and foldseek must be on PATH. The 3Di alphabet was derived from soluble-protein structures.
 
 #### `saprot_1p3b` — SaProt 1.3B
@@ -210,7 +210,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: masked marginals: log p(mut) - log p(wt)
 - **Approximate VRAM**: 6 GB
 - **Install**: `python3 -m vepbench install-env huggingface && bash scripts/install_foldseek.sh`
-- **Status here**: environment `huggingface` is not installed
+- **Environment**: `huggingface`
 - **Notes**: The larger SaProt. Same scoring and the same foldseek requirement; enable it when you have the VRAM.
 
 
@@ -241,7 +241,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Riesselman et al. 2018: the effect is the ELBO of the mutant minus the ELBO of the wild type, so higher is more tolerated
 - **Approximate VRAM**: 4 GB
 - **Install**: `docker build -t vepbench-deepsequence envs/deepsequence`
-- **Status here**: environment `deepsequence` is not installed
+- **Environment**: `deepsequence`
 - **Notes**: Published against Python 2.7 and Theano. The container in envs/deepsequence/Dockerfile is the practical way to run it today.
 
 #### `eve_domain` — EVE (domain only)
@@ -254,7 +254,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Frazer et al. 2021 Nature: the evolutionary index is the negative of the mutant-to-wild-type log-likelihood ratio, so higher is more pathogenic
 - **Approximate VRAM**: 8 GB
 - **Install**: `python3 -m vepbench install-env eve`
-- **Status here**: environment `eve` is not installed
+- **Environment**: `eve`
 - **Notes**: The domain-level variant EVE was published with. The alignment is trimmed to the domain window before training, which usually deepens it.
 
 #### `eve_full` — EVE (full length)
@@ -267,7 +267,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Frazer et al. 2021 Nature: the evolutionary index is the negative of the mutant-to-wild-type log-likelihood ratio, so higher is more pathogenic
 - **Approximate VRAM**: 8 GB
 - **Install**: `python3 -m vepbench install-env eve`
-- **Status here**: environment `eve` is not installed
+- **Environment**: `eve`
 - **Notes**: A VAE is trained from scratch on this protein's alignment, so the cost is GPU hours per protein rather than per variant. Unreliable on a shallow alignment; the pipeline warns below Neff 100.
 
 #### `evmutation` — EVmutation (epistatic Potts model)
@@ -279,7 +279,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Score**: potts_energy_difference, higher is more tolerated
 - **Convention source**: Hopf et al. 2017: the epistatic score is E(mutant) - E(wild type) in the statistical energy, where more negative is more deleterious
 - **Install**: `python3 -m vepbench install-env evcouplings`
-- **Status here**: environment `evcouplings` is not installed
+- **Environment**: `evcouplings`
 - **Notes**: Classic baseline. Fits a pairwise undirected graphical model with plmc and needs a deep alignment to fit couplings reliably.
 
 #### `gemme` — GEMME
@@ -291,7 +291,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Score**: gemme_score, higher is more tolerated
 - **Convention source**: Laine et al. 2019: GEMME predicted effects are negative, with more negative meaning more deleterious
 - **Install**: `python3 -m vepbench install-env gemme`
-- **Status here**: environment `gemme` is not installed
+- **Environment**: `gemme`
 - **Notes**: Needs Java. Fast, no per-protein training, and one of the stronger alignment-only methods on ProteinGym.
 
 #### `popeve` — popEVE
@@ -304,7 +304,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Orenbuch et al. 2023: popEVE scores are calibrated so that more negative is more damaging
 - **Approximate VRAM**: 4 GB
 - **Install**: `python3 -m vepbench install-env eve`
-- **Status here**: environment `eve` is not installed
+- **Environment**: `eve`
 - **Notes**: Proteome-wide precomputed scores exist for human proteins and are used when available. A local run needs both EVE and ESM-1v scores first.
 
 #### `trancepteve` — TranceptEVE L
@@ -317,7 +317,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: log-likelihood ratio of mutant to wild type; positive favours the mutant
 - **Approximate VRAM**: 8 GB
 - **Install**: `python3 -m vepbench install-env tranception, after install-env eve`
-- **Status here**: environment `tranception` is not installed
+- **Environment**: `tranception`
 - **Notes**: Needs EVE trained for the same protein first: it mixes the EVE family model with Tranception's autoregressive scores.
 
 #### `tranception` — Tranception L (retrieval)
@@ -330,7 +330,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: log-likelihood ratio of mutant to wild type; positive favours the mutant
 - **Approximate VRAM**: 6 GB
 - **Install**: `python3 -m vepbench install-env tranception`
-- **Status here**: environment `tranception` is not installed
+- **Environment**: `tranception`
 - **Notes**: Run with inference-time retrieval from the alignment, the configuration the paper benchmarks. Without retrieval it degrades to the autoregressive model alone.
 
 #### `vespa` — VESPA
@@ -343,7 +343,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Marquet et al. 2022: VESPA outputs a probability in [0,1] that the substitution has an effect, so higher is more deleterious
 - **Approximate VRAM**: 6 GB
 - **Install**: `python3 -m vepbench install-env vespa`
-- **Status here**: environment `vespa` is not installed
+- **Environment**: `vespa`
 - **Notes**: Supervised on variant-effect data. VESPA-light is the faster variant, selected with the light option.
 
 
@@ -367,7 +367,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: conditional log-likelihood difference log p(mut|backbone) - log p(wt|backbone)
 - **Approximate VRAM**: 2 GB
 - **Install**: `python3 -m vepbench install-env esm_if1`
-- **Status here**: environment `esm_if1` is not installed
+- **Environment**: `esm_if1`
 - **Notes**: The only model here still distributed solely through fair-esm, so its weights come from dl.fbaipublicfiles.com rather than Hugging Face. Weights are CC-BY-NC, so commercial use is restricted. It lives in its own environment because torch-scatter and torch-sparse, which it requires, publish wheels only for older torch releases.
 
 #### `proteinmpnn` — ProteinMPNN
@@ -380,7 +380,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: conditional log-likelihood difference log p(mut|backbone) - log p(wt|backbone)
 - **Approximate VRAM**: 1 GB
 - **Install**: `python3 -m vepbench install-env proteinmpnn`
-- **Status here**: environment `proteinmpnn` is not installed
+- **Environment**: `proteinmpnn`
 - **Notes**: Scored with conditional probabilities averaged over random decoding orders, the inverse-folding analogue of a masked marginal. Small enough to run comfortably on CPU. A soluble-weights variant is available through the use_soluble_weights option.
 
 
@@ -406,7 +406,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: METL-Global predicts Rosetta biophysical attributes, and the total score follows Rosetta's convention where higher energy is worse. The fine-tuned METL-Local models instead predict assay-specific fitness, whose direction is whatever the training assay used. Confirm before benchmarking.
 - **Approximate VRAM**: 2 GB
 - **Install**: `python3 -m vepbench install-env metl`
-- **Status here**: environment `metl` is not installed
+- **Environment**: `metl`
 - **Notes**: Pretrained on synthetic Rosetta data. Zero-shot in that it needs no assay data, but it predicts biophysical attributes rather than fitness. Local models exist only for proteins the authors simulated, none of them a membrane protein.
 
 #### `promep` — ProMEP
@@ -419,7 +419,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: fitness log-likelihood ratio of mutant to wild type; positive favours the mutant
 - **Approximate VRAM**: 8 GB
 - **Install**: `python3 -m vepbench install-env promep`
-- **Status here**: environment `promep` is not installed
+- **Environment**: `promep`
 - **Notes**: Alignment-free multimodal model trained on sequence and structure from roughly 160 million AlphaFold DB entries. Needs SE(3)-Transformer and DGL, the most fragile install here.
 
 #### `s3f` — S3F (sequence-structure-surface)
@@ -432,7 +432,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: fitness log-likelihood ratio of mutant to wild type; positive favours the mutant
 - **Approximate VRAM**: 8 GB
 - **Install**: `python3 -m vepbench install-env s3f`
-- **Status here**: environment `s3f` is not installed
+- **Environment**: `s3f`
 - **Notes**: Combines a protein language model with residue-graph and molecular-surface encoders. The S3F-MSA variant also consumes an alignment; select it with the use_msa option.
 
 #### `venusrem` — VenusREM
@@ -445,7 +445,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: fitness log-likelihood ratio of mutant to wild type; positive favours the mutant
 - **Approximate VRAM**: 4 GB
 - **Install**: `python3 -m vepbench install-env venusrem`
-- **Status here**: environment `venusrem` is not installed
+- **Environment**: `venusrem`
 - **Notes**: Retrieval-enhanced: a structure-aware language model combined with alignment-derived residue preferences. Reported state of the art on 217 ProteinGym assays, so treat ProteinGym overlap as leakage.
 
 
@@ -474,7 +474,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Same repository and same caveat as saprot_dg.
 - **Approximate VRAM**: 8 GB
 - **Install**: `python3 -m vepbench install-env stability_dg, then export HF_TOKEN`
-- **Status here**: environment `stability_dg` is not installed
+- **Environment**: `stability_dg`
 - **Notes**: Requires accepting the ESM3 licence on Hugging Face. See esm3_dg_masked_marginal for the likelihood alternative.
 
 #### `esm3_dg_masked_marginal` — ESM3 masked-marginal (labelled dG fallback)
@@ -487,7 +487,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: standard masked marginal log p(mut) - log p(wt) from ESM3
 - **Approximate VRAM**: 7 GB
 - **Install**: `python3 -m vepbench install-env esm, then export HF_TOKEN`
-- **Status here**: environment `esm` is installed
+- **Environment**: `esm`
 - **Notes**: NOT a free-energy estimate. Same caveat as saprot_dg_masked_marginal; here the structure track is used as conditioning, which is what distinguishes it from esm3_open.
 
 #### `foldx` — FoldX BuildModel
@@ -499,7 +499,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Score**: ddG_kcal_mol, higher is more deleterious
 - **Convention source**: ddG = G(mutant) - G(wild type); positive is destabilising, the Rosetta and FoldX convention
 - **Install**: `export FOLDX_BINARY=/path/to/foldx`
-- **Status here**: environment `foldx` is not installed
+- **Environment**: `foldx`
 - **Notes**: RepairPDB runs once per structure and is cached, then BuildModel runs per variant. This is the slow path: seconds to minutes per variant, so a saturation scan of a large protein is expensive. Results are cached per variant, so an interrupted scan resumes. The empirical force field was parameterised on soluble proteins.
 
 #### `rasp` — RaSP
@@ -512,7 +512,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: ddG = G(mutant) - G(wild type); positive is destabilising, the Rosetta and FoldX convention
 - **Approximate VRAM**: 2 GB
 - **Install**: `python3 -m vepbench install-env rasp`
-- **Status here**: environment `rasp` is not installed
+- **Environment**: `rasp`
 - **Notes**: Trained to reproduce Rosetta cartesian_ddg, so it inherits Rosetta's sign convention and its soluble-protein bias. Fast enough for saturation scans, which is its advantage over FoldX and Rosetta.
 
 #### `saprot_dg` — SaProt-dG (absolute stability predictor)
@@ -525,7 +525,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: The absolute-stability-predictor repository predicts dG and ddG with a LoRA stability head. Its sign convention is not stated in the sources used to build this entry; confirm with `vepbench check-conventions` before benchmarking.
 - **Approximate VRAM**: 4 GB
 - **Install**: `python3 -m vepbench install-env stability_dg`
-- **Status here**: environment `stability_dg` is not installed
+- **Environment**: `stability_dg`
 - **Notes**: Supervised on experimental dG and ddG, so not zero-shot, and overlapping benchmark data is leakage. This is the published implementation; see saprot_dg_masked_marginal for the likelihood alternative.
 
 #### `saprot_dg_masked_marginal` — SaProt masked-marginal (labelled dG fallback)
@@ -538,7 +538,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: standard masked marginal log p(mut) - log p(wt) from SaProt
 - **Approximate VRAM**: 3 GB
 - **Install**: `python3 -m vepbench install-env huggingface`
-- **Status here**: environment `huggingface` is not installed
+- **Environment**: `huggingface`
 - **Notes**: NOT a free-energy estimate and NOT the published SaProt-dG. This is the standard likelihood-ratio score, provided as the documented fallback. Units are log-likelihood, not kcal/mol.
 
 #### `thermompnn` — ThermoMPNN
@@ -551,7 +551,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: Dieckhaus et al. 2024 report ddG with positive meaning destabilising, but the raw Megascale data uses the opposite sign and some forks flip it. Confirm with `vepbench check-conventions` before benchmarking.
 - **Approximate VRAM**: 1 GB
 - **Install**: `python3 -m vepbench install-env proteinmpnn`
-- **Status here**: environment `proteinmpnn` is not installed
+- **Environment**: `proteinmpnn`
 - **Notes**: Trained on Tsuboyama et al. 2023, so any benchmark overlapping that dataset is leaked. Built on ProteinMPNN features, hence the shared environment. Scores a whole saturation scan in one pass.
 
 

@@ -416,9 +416,67 @@ def command_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _status_across_proteins() -> int:
+    """Tally every predictor over every protein that has been run.
+
+    `doctor` reports what is installed, which is not the same as what works:
+    a predictor can pass every check and still fail at run time on an upstream
+    layout change. Once results exist they are the better answer, and the only
+    one that separates "never tried" from "tried and failed on all of them".
+    """
+    directories = sorted(
+        d for d in PATHS.outputs.glob("*")
+        if d.is_dir() and d.name != "jobs" and (d / "status.json").exists()
+    )
+    if not directories:
+        print(f"no runs yet under {PATHS.outputs}")
+        return 0
+
+    tally: dict[str, dict[str, int]] = {}
+    reasons: dict[str, str] = {}
+    for directory in directories:
+        payload = json.loads((directory / "status.json").read_text())
+        for entry in payload["predictors"]:
+            name = entry["predictor"]
+            counts = tally.setdefault(name, {})
+            counts[entry["status"]] = counts.get(entry["status"], 0) + 1
+            if entry.get("message") and name not in reasons:
+                reasons[name] = entry["message"]
+
+    total = len(directories)
+    print(f"{total} protein(s) with results under {PATHS.outputs}\n")
+    header = (f"{'predictor':28s} {'ok':>4s} {'cached':>7s} {'failed':>7s} "
+              f"{'unavail':>8s}  why")
+    print(header)
+    print("-" * len(header))
+
+    def produced(counts: dict[str, int]) -> int:
+        return counts.get("ok", 0) + counts.get("cached", 0)
+
+    # Complete first, then partial, then the ones that never produced a score.
+    for name, counts in sorted(
+        tally.items(),
+        key=lambda item: (0 if produced(item[1]) == total
+                          else 1 if produced(item[1]) else 2, item[0]),
+    ):
+        why = "" if produced(counts) == total else reasons.get(name, "")[:60]
+        print(f"{name:28s} {counts.get('ok', 0):4d} {counts.get('cached', 0):7d} "
+              f"{counts.get('failed', 0):7d} {counts.get('unavailable', 0):8d}  {why}")
+
+    complete = [n for n, c in tally.items() if produced(c) == total]
+    partial = [n for n, c in tally.items() if 0 < produced(c) < total]
+    print(f"\n{len(complete)} predictor(s) have a score for every protein")
+    if partial:
+        print(f"{len(partial)} have some but not all: {', '.join(sorted(partial))}")
+    return 0
+
+
 def command_status(args: argparse.Namespace) -> int:
     from vepbench.envs import ENVIRONMENTS
     from vepbench.predictors import REGISTRY
+
+    if args.all:
+        return _status_across_proteins()
 
     if args.uniprot:
         path = PATHS.output_dir(args.uniprot) / "status.json"
@@ -750,6 +808,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status", help="show environment or per-protein run status")
     status.add_argument("--uniprot")
+    status.add_argument("--all", action="store_true",
+                        help="tally every predictor across every protein run so far")
     status.set_defaults(func=command_status)
 
     conventions = sub.add_parser("check-conventions",

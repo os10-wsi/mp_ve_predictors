@@ -16,7 +16,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from vepbench.config import PATHS
 from vepbench.envs import ENVIRONMENTS
 from vepbench.predictors import REGISTRY
 
@@ -131,8 +130,11 @@ def details(predictors) -> str:
         if spec.install_hint:
             lines.append(f"- **Install**: `{spec.install_hint}`")
         if spec.env and spec.env in ENVIRONMENTS:
-            state = "installed" if ENVIRONMENTS[spec.env].is_installed(PATHS) else "not installed"
-            lines.append(f"- **Status here**: environment `{spec.env}` is {state}")
+            # Which environment, not whether it happens to be installed: this
+            # file is committed, so live state would be wrong for everyone
+            # except whoever last regenerated it. `vepbench doctor` answers
+            # the live question.
+            lines.append(f"- **Environment**: `{spec.env}`")
         if spec.notes:
             lines.append(f"- **Notes**: {spec.notes}")
         blocks.append("\n".join(lines))

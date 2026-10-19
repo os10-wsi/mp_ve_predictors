@@ -74,7 +74,11 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     command = [
-        sys.executable, "-I", str(repo / "score_trancepteve_proteingym.py"),
+        # -s rather than -I: isolated mode implies -P, which keeps the script's
+        # own directory off sys.path, so an upstream entry point cannot import its
+        # siblings (ProteinMPNN's protein_mpnn_utils, EVE's model code). -s still
+        # ignores user site-packages, which is the isolation that matters here.
+        sys.executable, "-s", str(repo / "score_trancepteve_proteingym.py"),
         "--checkpoint", str(checkpoint),
         "--DMS_reference_file_path", str(reference),
         "--DMS_data_folder", str(work_dir),

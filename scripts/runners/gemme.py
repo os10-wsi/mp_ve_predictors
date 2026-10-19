@@ -43,7 +43,11 @@ def main() -> int:
     )
 
     run_command(
-        [sys.executable, "-I", str(script), str(alignment), "-r", "input",
+        # -s rather than -I: isolated mode implies -P, which keeps the script's
+        # own directory off sys.path, so an upstream entry point cannot import its
+        # siblings (ProteinMPNN's protein_mpnn_utils, EVE's model code). -s still
+        # ignores user site-packages, which is the isolation that matters here.
+        [sys.executable, "-s", str(script), str(alignment), "-r", "input",
          "-f", str(alignment), "-m", str(mutations), "-o", "gemme_out"],
         cwd=work_dir, label="GEMME",
     )

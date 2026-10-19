@@ -40,7 +40,11 @@ def main() -> int:
     mutations.write_text("\n".join(f"{w}{p}{m}" for p, w, m in variants if m != w) + "\n")
     output_dir = work_dir / "vespa_out"
 
-    command = [sys.executable, "-I", "-m", "vespa.predict", str(fasta),
+    # -s rather than -I: isolated mode implies -P, which keeps the script's
+    # own directory off sys.path, so an upstream entry point cannot import its
+    # siblings (ProteinMPNN's protein_mpnn_utils, EVE's model code). -s still
+    # ignores user site-packages, which is the isolation that matters here.
+    command = [sys.executable, "-s", "-m", "vespa.predict", str(fasta),
                "--output", str(output_dir)]
     if light:
         command.append("--vespal")

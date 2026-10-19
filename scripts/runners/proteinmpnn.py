@@ -47,7 +47,11 @@ def main() -> int:
     output_dir = work_dir / "mpnn"
     output_dir.mkdir(parents=True, exist_ok=True)
     command = [
-        sys.executable, "-I", str(script),
+        # -s rather than -I: isolated mode implies -P, which keeps the script's
+        # own directory off sys.path, so an upstream entry point cannot import its
+        # siblings (ProteinMPNN's protein_mpnn_utils, EVE's model code). -s still
+        # ignores user site-packages, which is the isolation that matters here.
+        sys.executable, "-s", str(script),
         "--pdb_path", job["structure_path"],
         "--pdb_path_chains", job.get("structure_chain") or "A",
         "--out_folder", str(output_dir),

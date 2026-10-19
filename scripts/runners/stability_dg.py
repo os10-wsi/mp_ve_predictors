@@ -49,7 +49,11 @@ def main() -> int:
 
     variant_file = write_variant_list(work_dir / "variants.csv", variants, style="csv")
     output = work_dir / "stability_dg_scores.csv"
-    command = [sys.executable, "-I", str(entry)] + ["--pdb", job["structure_path"], "--chain", job.get("structure_chain") or "A", "--mutations", str(variant_file), "--model", options.get("backbone", "saprot"), "--ensemble", str(int(options.get("ensemble", 3))), "--output", str(output)]
+    # -s rather than -I: isolated mode implies -P, which keeps the script's
+    # own directory off sys.path, so an upstream entry point cannot import its
+    # siblings (ProteinMPNN's protein_mpnn_utils, EVE's model code). -s still
+    # ignores user site-packages, which is the isolation that matters here.
+    command = [sys.executable, "-s", str(entry)] + ["--pdb", job["structure_path"], "--chain", job.get("structure_chain") or "A", "--mutations", str(variant_file), "--model", options.get("backbone", "saprot"), "--ensemble", str(int(options.get("ensemble", 3))), "--output", str(output)]
     run_command(command, cwd=repo, label="absolute-stability-predictor")
 
     lookup = read_score_table(output, ["mutant", "mutation", "variant"], ["ddG", "predicted_ddG", "ddg", "score"])

@@ -48,7 +48,11 @@ def main() -> int:
 
     # RaSP scans every position itself, so no variant list is written.
     output = work_dir / "rasp_scores.csv"
-    command = [sys.executable, "-I", str(entry)] + ["--pdb", job["structure_path"], "--chain", job.get("structure_chain") or "A", "--output", str(output)]
+    # -s rather than -I: isolated mode implies -P, which keeps the script's
+    # own directory off sys.path, so an upstream entry point cannot import its
+    # siblings (ProteinMPNN's protein_mpnn_utils, EVE's model code). -s still
+    # ignores user site-packages, which is the isolation that matters here.
+    command = [sys.executable, "-s", str(entry)] + ["--pdb", job["structure_path"], "--chain", job.get("structure_chain") or "A", "--output", str(output)]
     run_command(command, cwd=repo, label="RaSP run_pipeline")
 
     lookup = read_score_table(output, ["variant", "mutant", "mutation"], ["score_ml", "ddG_pred", "score", "prediction"])

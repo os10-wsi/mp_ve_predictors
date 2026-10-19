@@ -49,7 +49,11 @@ def main() -> int:
 
     variant_file = write_variant_list(work_dir / "variants.csv", variants, style="csv")
     output = work_dir / "s3f_scores.csv"
-    command = [sys.executable, "-I", str(entry)] + ["--sequence", job["sequence"], "--structure", job["structure_path"], "--mutations", str(variant_file), "--output", str(output), "--model", "s3f_msa" if options.get("use_msa") else "s3f"] + (["--msa", job["msa_path"]] if options.get("use_msa") and job.get("msa_path") else [])
+    # -s rather than -I: isolated mode implies -P, which keeps the script's
+    # own directory off sys.path, so an upstream entry point cannot import its
+    # siblings (ProteinMPNN's protein_mpnn_utils, EVE's model code). -s still
+    # ignores user site-packages, which is the isolation that matters here.
+    command = [sys.executable, "-s", str(entry)] + ["--sequence", job["sequence"], "--structure", job["structure_path"], "--mutations", str(variant_file), "--output", str(output), "--model", "s3f_msa" if options.get("use_msa") else "s3f"] + (["--msa", job["msa_path"]] if options.get("use_msa") and job.get("msa_path") else [])
     run_command(command, cwd=repo, label="S3F predict")
 
     lookup = read_score_table(output, ["mutant", "variant", "mutation"], ["score", "prediction", "fitness"])

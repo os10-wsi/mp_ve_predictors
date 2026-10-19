@@ -49,7 +49,11 @@ def main() -> int:
 
     variant_file = write_variant_list(work_dir / "variants.csv", variants, style="csv")
     output = work_dir / "promep_scores.csv"
-    command = [sys.executable, "-I", str(entry)] + ["--pdb_file", job["structure_path"], "--mutation_file", str(variant_file), "--output_file", str(output)]
+    # -s rather than -I: isolated mode implies -P, which keeps the script's
+    # own directory off sys.path, so an upstream entry point cannot import its
+    # siblings (ProteinMPNN's protein_mpnn_utils, EVE's model code). -s still
+    # ignores user site-packages, which is the isolation that matters here.
+    command = [sys.executable, "-s", str(entry)] + ["--pdb_file", job["structure_path"], "--mutation_file", str(variant_file), "--output_file", str(output)]
     run_command(command, cwd=repo, label="ProMEP inference_dms")
 
     lookup = read_score_table(output, ["mutant", "mutation", "variant"], ["score", "promep_score", "prediction"])

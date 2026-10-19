@@ -69,7 +69,11 @@ def main() -> int:
     model_dir.mkdir(parents=True, exist_ok=True)
     if not list(model_dir.glob("*.pt")) or options.get("retrain"):
         run_command([
-            sys.executable, "-I", str(repo / "train_VAE.py"),
+            # -s rather than -I: isolated mode implies -P, which keeps the script's
+            # own directory off sys.path, so an upstream entry point cannot import its
+            # siblings (ProteinMPNN's protein_mpnn_utils, EVE's model code). -s still
+            # ignores user site-packages, which is the isolation that matters here.
+            sys.executable, "-s", str(repo / "train_VAE.py"),
             "--MSA_data_folder", str(alignment_dir), "--MSA_list", str(mapping),
             "--protein_index", "0", "--MSA_weights_location", str(model_dir / "weights"),
             "--VAE_checkpoint_location", str(model_dir),
@@ -83,7 +87,7 @@ def main() -> int:
     output_dir = work_dir / "eve_scores"
     output_dir.mkdir(parents=True, exist_ok=True)
     run_command([
-        sys.executable, "-I", str(repo / "compute_evol_indices.py"),
+        sys.executable, "-s", str(repo / "compute_evol_indices.py"),
         "--MSA_data_folder", str(alignment_dir), "--MSA_list", str(mapping),
         "--protein_index", "0", "--MSA_weights_location", str(model_dir / "weights"),
         "--VAE_checkpoint_location", str(model_dir), "--model_name_suffix", "vepbench",

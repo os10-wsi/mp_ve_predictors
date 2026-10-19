@@ -148,3 +148,23 @@ def test_predictors_md_is_up_to_date():
         "PREDICTORS.md is out of date; regenerate it with "
         "`python scripts/generate_predictors_md.py`"
     )
+
+
+def test_upstream_entry_points_are_not_run_in_isolated_mode():
+    """`-I` implies `-P`, which keeps the script's own directory off sys.path.
+
+    An upstream research repository's entry point then cannot import its
+    siblings: ProteinMPNN's protein_mpnn_utils, EVE's model code. `-s` gives
+    the isolation that matters (no user site-packages) without that.
+    """
+    runners = sorted((Path(__file__).parent.parent / "scripts" / "runners").glob("*.py"))
+    assert runners, "no runners found"
+    offenders = [
+        f"{path.name}:{number}"
+        for path in runners
+        for number, line in enumerate(path.read_text().splitlines(), start=1)
+        if 'sys.executable, "-I"' in line
+    ]
+    assert not offenders, (
+        "use -s for upstream entry points, not -I:\n" + "\n".join(offenders)
+    )

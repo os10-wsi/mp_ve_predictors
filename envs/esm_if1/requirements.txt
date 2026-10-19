@@ -7,5 +7,7 @@ torch==2.4.1
 numpy>=1.26,<3
 pandas>=2.2
 fair-esm==2.0.0
-biotite>=0.41
+# biotite 1.0 renamed filter_backbone to filter_peptide_backbone;
+# fair-esm 2.0.0 is unmaintained and still imports the old name.
+biotite>=0.41,<1.0
 torch-geometric>=2.6

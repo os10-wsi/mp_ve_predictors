@@ -37,13 +37,21 @@ def main() -> int:
         fail("the dG stability models needs a structure")
 
     repo = repo_path(job, "absolute-stability-predictor", "STABILITY_DG_DIR", "https://github.com/yehlincho/absolute-stability-predictor", "scripts/install_stability_dg.sh")
-    entry = repo / "predict.py"
-    if not entry.exists():
-        candidates = sorted(repo.rglob("*predict*.py"))
+    # The repository ships one entry point per backbone at its root
+    # (SaProtdG.py, ESM3dG.py) rather than a single predict.py. Older
+    # releases did have predict.py, so both are tried.
+    backbone = str(options.get("backbone", "saprot")).lower()
+    by_backbone = {"saprot": "SaProtdG.py", "esm3": "ESM3dG.py"}
+    wanted = [by_backbone.get(backbone, ""), "predict.py"]
+    entry = next((repo / name for name in wanted if name and (repo / name).exists()), None)
+    if entry is None:
+        candidates = sorted(repo.rglob("*predict*.py")) + sorted(repo.glob("*dG.py"))
         if not candidates:
             fail(
-                f"could not find an entry point in the absolute-stability-predictor checkout at {repo}. "
-                f"The upstream layout changes between releases; check scripts/install_stability_dg.sh"
+                f"could not find an entry point for backbone {backbone!r} in the "
+                f"absolute-stability-predictor checkout at {repo}. Looked for "
+                f"{', '.join(n for n in wanted if n)}. The upstream layout changes "
+                f"between releases; check scripts/install_stability_dg.sh"
             )
         entry = candidates[0]
 

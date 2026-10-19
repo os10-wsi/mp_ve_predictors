@@ -541,6 +541,37 @@ python3 -m vepbench doctor --predictors <the ones you asked for>
 | a weight download stalls | `export HF_HUB_DISABLE_XET=1` is already set for runners |
 | an upstream repo moved | the runner prints the upstream error; the install script names the repo |
 
+### If everything runs but is tens of times too slow
+
+Almost certainly torch is on the CPU. PyPI ships one torch wheel per
+version, built against one CUDA release; if that is newer than the driver,
+torch imports fine, reports no devices and falls back to CPU, leaving only
+this in the log:
+
+```
+CUDA initialization: The NVIDIA driver on your system is too old (found version 12040)
+```
+
+`doctor` asks torch directly and says so:
+
+```
+warn  gpu: torch in 'esm' (built for CUDA 13.0) sees no GPU
+```
+
+Find the driver's CUDA version, then rebuild the torch environments against
+a matching wheel index. Any CUDA 12 build runs on any CUDA 12 driver, so one
+index covers the whole 12.x range:
+
+```bash
+nvidia-smi                       # "CUDA Version:" top right
+export VEPBENCH_TORCH_INDEX=https://download.pytorch.org/whl/cu126
+python3 -m vepbench install-env esm huggingface --force
+```
+
+`VEPBENCH_TORCH_INDEX` is passed to every environment install as an extra
+index, so set it once before installing. Check the host is reachable from
+the cluster first; some sites allow PyPI but not `download.pytorch.org`.
+
 ### If an environment install hits "Disk quota exceeded"
 
 Usually the inode quota rather than the block quota: torch and its

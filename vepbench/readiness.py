@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -283,6 +284,48 @@ def check_msa_database(names: list[str], msa_backend: str) -> list[Check]:
     )]
 
 
+def check_cuda(names: list[str], paths: Paths = PATHS) -> list[Check]:
+    """Does the installed torch actually see the GPU?
+
+    A wheel built against a newer CUDA than the driver imports fine and
+    reports no devices, so every predictor runs on CPU at a tenth of the
+    speed with nothing but a warning in the log. Asking torch directly is
+    the only way to tell, and it has to be asked inside the environment.
+    """
+    wanted = sorted({REGISTRY[n].spec.env for n in names if REGISTRY[n].spec.env})
+    for name in wanted:
+        spec = ENVIRONMENTS.get(name)
+        if spec is None or not spec.is_installed(paths):
+            continue
+        probe = (
+            "import torch,sys;"
+            "print('yes' if torch.cuda.is_available() else 'no', torch.version.cuda)"
+        )
+        try:
+            result = subprocess.run(
+                [str(spec.interpreter(paths)), "-s", "-c", probe],
+                capture_output=True, text=True, timeout=120, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        answer = result.stdout.strip().split()
+        if len(answer) < 2:
+            continue  # torch is not in this environment
+        available, built_for = answer[0], answer[1]
+        return [Check(
+            name="gpu", status=OK if available == "yes" else WARNING,
+            detail=(f"torch in {name!r} (built for CUDA {built_for}) "
+                    f"{'sees the GPU' if available == 'yes' else 'sees no GPU'}"),
+            fix="" if available == "yes" else (
+                "on a GPU node this means the wheel is wrong for the driver: "
+                "check `nvidia-smi`, then rebuild with VEPBENCH_TORCH_INDEX set "
+                "to a matching wheel index, e.g. "
+                "https://download.pytorch.org/whl/cu126 for a CUDA 12 driver"
+            ),
+        )]
+    return []
+
+
 def check_credentials(names: list[str], msa_backend: str) -> list[Check]:
     checks = []
     gated = [n for n in names if n in ("esm3_open", "esmc_600m", "esm3_dg",
@@ -483,6 +526,8 @@ def assess(
     result.checks += check_weights(names, paths)
     result.checks += check_binaries(names, msa_backend, features)
     result.checks += check_msa_database(names, msa_backend)
+    if not os.environ.get("VEPBENCH_SKIP_GPU_CHECK"):
+        result.checks += check_cuda(names, paths)
     result.checks += check_credentials(names, msa_backend)
     result.checks += check_storage(paths)
 

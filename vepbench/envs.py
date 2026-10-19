@@ -301,6 +301,21 @@ def resolve_backend(requested: str | None = None) -> str:
     )
 
 
+def torch_index_args() -> list[str]:
+    """Where to get torch from, when the default build is wrong for the driver.
+
+    PyPI ships one torch wheel per version, built against one CUDA release.
+    If it is newer than the driver, torch loads but reports no GPU and
+    everything silently runs on CPU, tens of times slower, with only a
+    warning buried in the log.
+
+    Set VEPBENCH_TORCH_INDEX to a PyTorch wheel index matching the driver,
+    e.g. https://download.pytorch.org/whl/cu126 for any CUDA 12 driver.
+    """
+    index = os.environ.get("VEPBENCH_TORCH_INDEX")
+    return ["--extra-index-url", index] if index else []
+
+
 def uv_environment(paths: Paths = PATHS) -> dict:
     """Environment for uv, with its cache beside the venvs it fills.
 
@@ -325,7 +340,7 @@ def _create_with_uv(spec: EnvSpec, paths: Paths, venv: Path) -> None:
     if requirements.exists():
         subprocess.run(
             [uv, "pip", "install", "--python", str(spec.interpreter(paths)),
-             "-r", str(requirements)],
+             *torch_index_args(), "-r", str(requirements)],
             check=True, env=env,
         )
     conda_packages = spec.conda_packages(paths)
@@ -387,10 +402,11 @@ def _reinstall(spec: EnvSpec, paths: Paths, backend: str) -> None:
     log.warning("%s is missing dependencies after install; reinstalling", spec.name)
     if backend == UV_BACKEND:
         command = [which_backend(UV_BACKEND), "pip", "install", "--reinstall",
-                   "--python", str(spec.interpreter(paths)), "-r", str(requirements)]
+                   "--python", str(spec.interpreter(paths)),
+                   *torch_index_args(), "-r", str(requirements)]
     else:
         command = [str(spec.interpreter(paths)), "-m", "pip", "install",
-                   "--force-reinstall", "-r", str(requirements)]
+                   "--force-reinstall", *torch_index_args(), "-r", str(requirements)]
     subprocess.run(command, check=True, env=uv_environment(paths))
 
 

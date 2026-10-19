@@ -438,6 +438,38 @@ will be redone:
 version-controlled and stay, as do `data/cache/predictions/`, the weights
 and every `outputs/<accession>/` table.
 
+## 6e. ThermoMPNN from an environment module
+
+Where a site provides ThermoMPNN as a module, its upstream
+`analysis/custom_inference.py` can be driven directly instead of through
+`envs/`. It takes one PDB and generates the site-saturation list itself, so
+there is no variant file:
+
+```bash
+bash scripts/submit_thermompnn.sh --structures /path/to/structures --dry-run
+bash scripts/submit_thermompnn.sh --structures /path/to/structures
+```
+
+One array task per `.pdb` in the directory; anything else there is ignored.
+Results land in `<structures>/../thermompnn_out/` as
+`ThermoMPNN_inference_<accession>.csv`, with logs beside them. The file list
+is snapshotted at submission, so editing the directory afterwards cannot
+change what a queued task runs.
+
+| flag | default |
+|---|---|
+| `--module` | `HGI/softpack/users/rc30/ThermoMPNN/2`, or `$THERMOMPNN_MODULE` |
+| `--thermompnn` | found next to the structures, or `third_party/ThermoMPNN` |
+| `--out-dir` | `<structures>/../thermompnn_out` |
+| `--group` | `team354`, or `$LSB_DEFAULT_PROJECT` |
+| `--queue` | `gpu`, or `$VEPBENCH_QUEUE` |
+| `--chain` | `A` |
+| `--mem` / `--time` | 8000 MB / 12:00 |
+| `--model-path` | upstream auto-discovers a .ckpt when omitted |
+
+The accession in each filename comes from the PDB's own name, so the
+outputs join back to `outputs/<accession>/` on that.
+
 ## 7. Alignments
 
 The default backend is the ColabFold MMseqs2 server, which needs nothing

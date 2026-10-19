@@ -1,11 +1,30 @@
 # SaProt-dG and ESM3-dG (absolute-stability-predictor).
+#
+# Taken from the repository's own pyproject.toml rather than from reading its
+# imports, which is how gemmi came to be missing. Two deliberate differences:
+#
+#   numpy<2 and transformers<5 are the upstream caps. An earlier version of
+#   this file allowed numpy 2 and transformers 5, which the repository does
+#   not support.
+#
+#   The upstream caps biotite<0.40, but esm==3.1.1 pins biotite==0.41.2
+#   exactly, so the two cannot both be satisfied. biotite is left to esm:
+#   the API break that matters (filter_backbone renamed to
+#   filter_peptide_backbone) landed in 1.0, so 0.41 is safe for both.
 torch==2.14.1
-numpy>=1.26,<3
-pandas>=2.2
-transformers>=4.44,<6
-peft>=0.13
+transformers>=4.40.0,<5.0.0
+peft>=0.10.0
+gemmi>=0.6.0
+huggingface-hub>=0.22.0
+numpy>=1.24.0,<2.0
+biopython>=1.81
+tqdm>=4.65.0
+attrs>=23.0.0
+einops
+msgpack-numpy
+scikit-learn
+brotli
+pandas
+cloudpathlib
+networkx
 esm==3.1.1
-# Imported by the upstream entry points (SaProtdG.py) for structure parsing.
-# This list was written from the repository's imports; compare it against the
-# repository's own pyproject.toml when an install stops at a missing module.
-gemmi>=0.6

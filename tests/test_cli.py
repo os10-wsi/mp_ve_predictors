@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -598,3 +599,111 @@ class TestStatusAcrossProteins:
         self.write(outputs, "P00001", [{"predictor": "esm2_650m", "status": "ok"}])
         bare_checkout.main(["status", "--all"])
         assert "1 protein(s)" in capsys.readouterr().out
+
+
+class TestInterpreterSelection:
+    """The submit script must not queue jobs against a Python that cannot run.
+
+    `import vepbench` is satisfied by the working directory alone, and
+    vepbench/__init__.py imports nothing but shlex and sys. An interpreter
+    with no dependencies installed passed that probe, got baked into the job
+    script, and every array task died in the queue on `import pandas`.
+    """
+
+    def _interpreter_without_pandas(self, tmp_path):
+        """A real interpreter that imports vepbench but not vepbench.cli."""
+        blocker = tmp_path / "blocker" / "pandas"
+        blocker.mkdir(parents=True)
+        (blocker / "__init__.py").write_text(
+            "raise ImportError(\"No module named 'pandas'\")\n"
+        )
+        shims = tmp_path / "shims"
+        shims.mkdir()
+        for name in ("python3", "python"):
+            shim = shims / name
+            shim.write_text(
+                f'#!/bin/sh\nPYTHONPATH={blocker.parent} exec {sys.executable} "$@"\n'
+            )
+            shim.chmod(0o755)
+        return shims
+
+    def _submit(self, tmp_path, shims, *extra):
+        import subprocess
+
+        listing = tmp_path / "ids.txt"
+        listing.write_text("P26678\nP53943\n")
+        env = dict(os.environ, PATH=f"{shims}:{os.environ['PATH']}")
+        env.pop("VIRTUAL_ENV", None)
+        env.pop("VEPBENCH_PYTHON", None)
+        return subprocess.run(
+            ["bash", str(REPO / "scripts" / "submit_job.sh"),
+             "--uniprot-list", str(listing), "--predictors", "blosum62_baseline",
+             "--dry-run", *extra],
+            capture_output=True, text=True, cwd=REPO, check=False, env=env,
+        )
+
+    def test_the_probe_reaches_the_dependencies(self, tmp_path):
+        """The shim must reproduce the farm: vepbench imports, vepbench.cli does not."""
+        import subprocess
+
+        shims = self._interpreter_without_pandas(tmp_path)
+        ok = subprocess.run([str(shims / "python3"), "-c", "import vepbench"],
+                            cwd=REPO, capture_output=True, check=False)
+        broken = subprocess.run([str(shims / "python3"), "-c", "import vepbench.cli"],
+                                cwd=REPO, capture_output=True, text=True, check=False)
+        assert ok.returncode == 0, "the old probe should still pass, or this proves nothing"
+        assert broken.returncode != 0
+        assert "pandas" in broken.stderr
+
+    def test_an_interpreter_without_dependencies_is_refused(self, tmp_path):
+        shims = self._interpreter_without_pandas(tmp_path)
+        result = self._submit(tmp_path, shims)
+
+        assert result.returncode == 1, "a job that cannot run must not reach the queue"
+        assert "no Python here can run vepbench" in result.stderr
+        assert "bsub" not in result.stdout
+
+    def test_the_refusal_names_what_went_wrong(self, tmp_path):
+        """A bare "cannot import" sends you looking in the wrong place."""
+        shims = self._interpreter_without_pandas(tmp_path)
+        result = self._submit(tmp_path, shims)
+
+        assert "pandas" in result.stderr
+        assert "VEPBENCH_PYTHON" in result.stderr
+
+    def test_skip_doctor_does_not_skip_the_interpreter_check(self, tmp_path):
+        """--skip-doctor waives the predictor preflight, not a working Python."""
+        shims = self._interpreter_without_pandas(tmp_path)
+        result = self._submit(tmp_path, shims, "--skip-doctor")
+
+        assert result.returncode == 1
+
+    def test_a_working_interpreter_still_submits(self, tmp_path):
+        import subprocess
+
+        listing = tmp_path / "ids.txt"
+        listing.write_text("P26678\nP53943\n")
+        result = subprocess.run(
+            ["bash", str(REPO / "scripts" / "submit_job.sh"),
+             "--uniprot-list", str(listing), "--predictors", "blosum62_baseline",
+             "--dry-run", "--skip-doctor"],
+            capture_output=True, text=True, cwd=REPO, check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "bsub" in result.stdout
+
+    def test_the_job_script_checks_its_interpreter_on_the_node(self, tmp_path):
+        """The submit host and the compute node need not see the same filesystem."""
+        import subprocess
+
+        listing = tmp_path / "ids.txt"
+        listing.write_text("P26678\n")
+        subprocess.run(
+            ["bash", str(REPO / "scripts" / "submit_job.sh"),
+             "--uniprot-list", str(listing), "--predictors", "blosum62_baseline",
+             "--dry-run", "--skip-doctor"],
+            capture_output=True, text=True, cwd=REPO, check=False,
+        )
+        newest = max((REPO / "outputs" / "jobs").glob("*.sh"),
+                     key=lambda p: p.stat().st_mtime)
+        assert "import vepbench.cli" in newest.read_text()

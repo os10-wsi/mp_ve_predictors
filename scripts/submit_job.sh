@@ -89,20 +89,39 @@ fi
 # The interpreter that can import vepbench here is the one the job should use.
 # A bare `python` does not exist on many systems, and `python3` outside an
 # active virtualenv may be a different one.
+# `import vepbench` is not enough to prove an interpreter can run the job. We
+# are sitting in $ROOT, so the package imports from the working directory on
+# any interpreter at all, and vepbench/__init__.py pulls in nothing but shlex
+# and sys. A bare python3 with no dependencies installed sails through it and
+# then dies in the queue on `import pandas`. Import the CLI instead: that is
+# what the job runs, and it reaches the third-party imports.
 find_python() {
   local candidate
   for candidate in "${VEPBENCH_PYTHON:-}" "${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}" \
                    python3 python; do
     [ -n "$candidate" ] || continue
     command -v "$candidate" >/dev/null 2>&1 || continue
-    "$candidate" -c 'import vepbench' >/dev/null 2>&1 && { command -v "$candidate"; return 0; }
+    "$candidate" -c 'import vepbench.cli' >/dev/null 2>&1 && { command -v "$candidate"; return 0; }
   done
   return 1
 }
 if ! PYTHON="$(find_python)"; then
-  echo "error: no Python here can import vepbench; run python3 -m pip install -e $ROOT" >&2
+  echo "error: no Python here can run vepbench." >&2
+  echo >&2
+  echo "An interpreter needs vepbench's dependencies, not just the package:" >&2
+  for candidate in "${VEPBENCH_PYTHON:-}" "${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}" \
+                   python3 python; do
+    [ -n "$candidate" ] || continue
+    command -v "$candidate" >/dev/null 2>&1 || continue
+    echo "  $(command -v "$candidate"): $("$candidate" -c 'import vepbench.cli' 2>&1 | tail -1)" >&2
+  done
+  echo >&2
+  echo "Activate the environment you installed into, or name it explicitly:" >&2
+  echo "  export VEPBENCH_PYTHON=/path/to/venv/bin/python" >&2
+  echo "Or install here: python3 -m pip install -e $ROOT" >&2
   exit 1
 fi
+echo "python  : $PYTHON"
 
 if [ ${#ACCESSIONS[@]} -gt 0 ]; then
   TARGET_FLAG=(--uniprot "${ACCESSIONS[@]}")
@@ -129,7 +148,17 @@ if [ -z "$NAME" ]; then NAME="vepbench-$LABEL"; fi
 # Gating on "everything is installed" would refuse every `all` submission.
 if [ "$SKIP_DOCTOR" = "0" ]; then
   echo "=== checking what can run ==="
-  REPORT="$("$PYTHON" -m vepbench doctor --predictors "${PREDICTORS[@]}" --json)" || true
+  DOCTOR_RC=0
+  REPORT="$("$PYTHON" -m vepbench doctor --predictors "${PREDICTORS[@]}" --json 2>&1)" \
+    || DOCTOR_RC=$?
+  if [ "$DOCTOR_RC" -ne 0 ]; then
+    echo "error: $PYTHON could not run \`vepbench doctor\`:" >&2
+    printf '%s\n' "$REPORT" | tail -5 | sed 's/^/  /' >&2
+    echo >&2
+    echo "Submitting would queue jobs that fail the same way. Fix the" >&2
+    echo "environment, or pass --skip-doctor to submit regardless." >&2
+    exit 1
+  fi
   SUMMARY="$(printf '%s' "$REPORT" | "$PYTHON" -c '
 import json, sys
 try:
@@ -215,7 +244,16 @@ quote() { printf '%q ' "$@"; }
   fi
   echo
   echo "PYTHON=$(printf '%q' "$PYTHON")"
+  echo '# The submit host and the compute node may not see the same filesystem.'
+  echo '# Fall back only to an interpreter that can actually run the CLI, and say'
+  echo '# so plainly rather than failing on an import several frames deep.'
   echo '[ -x "$PYTHON" ] || PYTHON=python3'
+  echo 'if ! "$PYTHON" -c "import vepbench.cli" >/dev/null 2>&1; then'
+  echo '  echo "error: $PYTHON cannot import vepbench.cli on $(hostname)" >&2'
+  echo '  "$PYTHON" -c "import vepbench.cli" 2>&1 | tail -3 >&2'
+  echo '  echo "Re-submit with VEPBENCH_PYTHON set to an interpreter that can." >&2'
+  echo '  exit 1'
+  echo 'fi'
   echo
   echo 'echo "host    : $(hostname)"'
   echo 'echo "started : $(date -u +%Y-%m-%dT%H:%M:%SZ)"'

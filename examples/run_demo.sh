@@ -16,13 +16,18 @@ trap 'rm -rf "$WORK"' EXIT
 # Many systems have python3 but no `python`, and an active virtualenv should
 # win over either. Pick the first interpreter that can actually import
 # vepbench, rather than the first one that exists.
+#
+# Import the CLI, not the package. We run from $ROOT, so `import vepbench`
+# succeeds on any interpreter at all, and vepbench/__init__.py pulls in
+# nothing but shlex and sys: an interpreter with no dependencies installed
+# would pass and then die on `import pandas`.
 find_python() {
   local candidate
   for candidate in "${VEPBENCH_PYTHON:-}" "${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}" \
                    python3 python; do
     [ -n "$candidate" ] || continue
     command -v "$candidate" >/dev/null 2>&1 || continue
-    if "$candidate" -c 'import vepbench' >/dev/null 2>&1; then
+    if "$candidate" -c 'import vepbench.cli' >/dev/null 2>&1; then
       command -v "$candidate"
       return 0
     fi
@@ -31,7 +36,7 @@ find_python() {
 }
 
 if ! PYTHON="$(find_python)"; then
-  echo "error: no Python interpreter here can import vepbench." >&2
+  echo "error: no Python interpreter here can run vepbench." >&2
   echo >&2
   if command -v python3 >/dev/null 2>&1; then
     echo "Install it first:" >&2

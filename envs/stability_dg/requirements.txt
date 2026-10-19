@@ -5,3 +5,7 @@ pandas>=2.2
 transformers>=4.44,<6
 peft>=0.13
 esm==3.1.1
+# Imported by the upstream entry points (SaProtdG.py) for structure parsing.
+# This list was written from the repository's imports; compare it against the
+# repository's own pyproject.toml when an install stops at a missing module.
+gemmi>=0.6

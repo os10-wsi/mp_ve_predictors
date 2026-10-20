@@ -148,17 +148,15 @@ if [ -z "$NAME" ]; then NAME="vepbench-$LABEL"; fi
 # Gating on "everything is installed" would refuse every `all` submission.
 if [ "$SKIP_DOCTOR" = "0" ]; then
   echo "=== checking what can run ==="
-  DOCTOR_RC=0
-  REPORT="$("$PYTHON" -m vepbench doctor --predictors "${PREDICTORS[@]}" --json 2>&1)" \
-    || DOCTOR_RC=$?
-  if [ "$DOCTOR_RC" -ne 0 ]; then
-    echo "error: $PYTHON could not run \`vepbench doctor\`:" >&2
-    printf '%s\n' "$REPORT" | tail -5 | sed 's/^/  /' >&2
-    echo >&2
-    echo "Submitting would queue jobs that fail the same way. Fix the" >&2
-    echo "environment, or pass --skip-doctor to submit regardless." >&2
-    exit 1
-  fi
+  # `doctor --json` exits non-zero whenever anything is missing, which for
+  # `--predictors all` is the normal case, so the exit code is deliberately
+  # not an answer to "is this worth submitting" -- see command_doctor in
+  # vepbench/cli.py. The report is. Keep stderr off stdout so log lines
+  # cannot corrupt the JSON, and let the ready count below make the call.
+  DOCTOR_ERR="$(mktemp)"
+  trap 'rm -f "$DOCTOR_ERR"' EXIT
+  REPORT="$("$PYTHON" -m vepbench doctor --predictors "${PREDICTORS[@]}" --json \
+            2>"$DOCTOR_ERR")" || true
   SUMMARY="$(printf '%s' "$REPORT" | "$PYTHON" -c '
 import json, sys
 try:
@@ -173,6 +171,7 @@ print("	".join(sorted(blocked)))
 ')"
   if [ "$SUMMARY" = "UNREADABLE" ]; then
     echo "warning: could not read the doctor report; submitting anyway." >&2
+    if [ -s "$DOCTOR_ERR" ]; then tail -3 "$DOCTOR_ERR" | sed 's/^/  /' >&2; fi
   else
     COUNTS="$(printf '%s' "$SUMMARY" | sed -n 1p)"
     READY_N="$(printf '%s' "$COUNTS" | cut -f1)"

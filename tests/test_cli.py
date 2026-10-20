@@ -707,3 +707,72 @@ class TestInterpreterSelection:
         newest = max((REPO / "outputs" / "jobs").glob("*.sh"),
                      key=lambda p: p.stat().st_mtime)
         assert "import vepbench.cli" in newest.read_text()
+
+
+class TestDoctorPreflight:
+    """A missing environment is not a reason to refuse a submission.
+
+    `doctor --json` exits non-zero whenever anything is missing, and with
+    `--predictors all` something always is: FoldX needs a licence,
+    DeepSequence a container runtime. Gating the submission on that exit code
+    refused every `all` run. Only "nothing at all can run" should stop a job.
+    """
+
+    def _submit(self, tmp_path, *predictors):
+        import subprocess
+
+        listing = tmp_path / "ids.txt"
+        listing.write_text("P26678\nP53943\n")
+        return subprocess.run(
+            ["bash", str(REPO / "scripts" / "submit_job.sh"),
+             "--uniprot-list", str(listing), "--predictors", *predictors,
+             "--dry-run"],
+            capture_output=True, text=True, cwd=REPO, check=False,
+        )
+
+    def test_missing_environments_do_not_block_an_all_submission(self, tmp_path):
+        result = self._submit(tmp_path, "all")
+
+        assert result.returncode == 0, result.stderr
+        assert "bsub" in result.stdout
+        assert "will skip" in result.stdout, "the skipped ones should still be reported"
+
+    def test_the_report_is_parsed_not_just_tolerated(self, tmp_path):
+        """Merging stderr into stdout corrupts the JSON and loses this line."""
+        result = self._submit(tmp_path, "all")
+
+        assert "will run :" in result.stdout
+        assert "could not read the doctor report" not in result.stderr
+
+    def test_a_run_that_could_do_nothing_is_still_refused(self, tmp_path):
+        """The gate that matters: do not queue a job with no runnable predictor."""
+        import json
+        import subprocess
+
+        report = subprocess.run(
+            [sys.executable, "-m", "vepbench", "doctor", "--predictors", "all",
+             "--json"],
+            capture_output=True, text=True, cwd=REPO, check=False,
+        )
+        blocked = json.loads(report.stdout)["blocked"]
+        if not blocked:
+            pytest.skip("every predictor is installed here, so nothing is blocked")
+
+        result = self._submit(tmp_path, sorted(blocked)[0])
+
+        assert result.returncode == 1
+        assert "none of the requested predictors can run" in result.stderr
+
+    def test_skip_doctor_bypasses_the_preflight(self, tmp_path):
+        import subprocess
+
+        listing = tmp_path / "ids.txt"
+        listing.write_text("P26678\n")
+        result = subprocess.run(
+            ["bash", str(REPO / "scripts" / "submit_job.sh"),
+             "--uniprot-list", str(listing), "--predictors", "all",
+             "--dry-run", "--skip-doctor"],
+            capture_output=True, text=True, cwd=REPO, check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "checking what can run" not in result.stdout

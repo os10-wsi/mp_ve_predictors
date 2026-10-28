@@ -500,7 +500,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Convention source**: ddG = G(mutant) - G(wild type); positive is destabilising, the Rosetta and FoldX convention
 - **Install**: `export FOLDX_BINARY=/path/to/foldx`
 - **Environment**: `foldx`
-- **Notes**: RepairPDB runs once per structure and is cached, then BuildModel runs per variant. This is the slow path: seconds to minutes per variant, so a saturation scan of a large protein is expensive. Results are cached per variant, so an interrupted scan resumes. The empirical force field was parameterised on soluble proteins.
+- **Notes**: RepairPDB runs once per structure and is cached, then BuildModel runs per variant. This is the slow path: seconds to minutes per variant, so a saturation scan of a large protein is expensive. Results are cached per variant, so an interrupted scan resumes. The empirical force field was parameterised on soluble proteins. Not proteome-scalable: at tens of seconds per variant, the human membrane proteome would take thousands of CPU-years.
 
 #### `rasp` — RaSP
 
@@ -513,7 +513,7 @@ caveat is recorded in each run's `metadata.json` and repeated in the README.
 - **Approximate VRAM**: 2 GB
 - **Install**: `python3 -m vepbench install-env rasp`
 - **Environment**: `rasp`
-- **Notes**: Trained to reproduce Rosetta cartesian_ddg, so it inherits Rosetta's sign convention and its soluble-protein bias. Fast enough for saturation scans, which is its advantage over FoldX and Rosetta.
+- **Notes**: Trained to reproduce Rosetta cartesian_ddg, so it inherits Rosetta's sign convention and its soluble-protein bias. Fast enough for saturation scans in principle, which is its advantage over FoldX and Rosetta. In practice the bundled upstream code has no prediction entry point: src/run_pipeline.py is the paper's reproduction script, which retrains the cavity model and ignores the arguments passed to it. The only inference path upstream ships is RaSPLab.ipynb, which upstream marks non-functional. This predictor therefore fails fast and reports itself unavailable rather than returning a number nobody can trust.
 
 #### `saprot_dg` — SaProt-dG (absolute stability predictor)
 

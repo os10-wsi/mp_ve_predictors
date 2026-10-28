@@ -57,6 +57,11 @@ class PredictorSpec:
     trained_on_proteingym: bool = False
     trained_on_clinvar: bool = False
     supervised: bool = False
+    #: Whether running this across a whole proteome is practical. A method
+    #: that costs a minute per protein is fine; one that costs a minute per
+    #: *variant* is not, and at 19 substitutions per residue the difference
+    #: is four orders of magnitude. Set False with the reason in ``notes``.
+    scales_to_proteome: bool = True
     notes: str = ""
     install_hint: str = ""
 
@@ -84,7 +89,8 @@ class PredictorSpec:
             "trained_on_megascale": self.trained_on_megascale,
             "trained_on_proteingym": self.trained_on_proteingym,
             "trained_on_clinvar": self.trained_on_clinvar,
-            "supervised": self.supervised, "notes": self.notes,
+            "supervised": self.supervised,
+            "scales_to_proteome": self.scales_to_proteome, "notes": self.notes,
         }
 
 
@@ -291,6 +297,14 @@ def resolve_names(names: list[str]) -> list[str]:
             ))
         elif name == "no_msa":
             resolved.extend(sorted(n for n, p in REGISTRY.items() if not p.spec.needs_msa))
+        elif name == "proteome":
+            # Everything that can realistically run across thousands of
+            # proteins: no per-protein alignment to build, and no per-variant
+            # cost that explodes at saturation.
+            resolved.extend(sorted(
+                n for n, p in REGISTRY.items()
+                if not p.spec.needs_msa and p.spec.scales_to_proteome
+            ))
         else:
             resolved.append(name)
     seen: set[str] = set()

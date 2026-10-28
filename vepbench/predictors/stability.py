@@ -82,12 +82,14 @@ register(FoldXPredictor(
         repo_url="https://foldxsuite.crg.eu/",
         license="Proprietary; free academic licence on request",
         requires=frozenset({"sequence", "structure"}), env="foldx",
-        model_version="set by FOLDX_BINARY at run time",
+        model_version="set by FOLDX_BINARY at run time", scales_to_proteome=False,
         notes="RepairPDB runs once per structure and is cached, then BuildModel runs "
               "per variant. This is the slow path: seconds to minutes per variant, so "
               "a saturation scan of a large protein is expensive. Results are cached "
               "per variant, so an interrupted scan resumes. The empirical force field "
-              "was parameterised on soluble proteins.",
+              "was parameterised on soluble proteins. Not proteome-scalable: at tens "
+              "of seconds per variant, the human membrane proteome would take "
+              "thousands of CPU-years.",
         install_hint="export FOLDX_BINARY=/path/to/foldx",
     ),
     runner_name="foldx.py", options={"repair": True, "num_runs": 1},
@@ -103,9 +105,16 @@ register(SubprocessPredictor(
         license="Apache-2.0", requires=frozenset({"sequence", "structure"}),
         approximate_vram_gb=2.0, env="rasp",
         model_version="RaSP cavity model + downstream ddG head", supervised=True,
+        scales_to_proteome=False,
         notes="Trained to reproduce Rosetta cartesian_ddg, so it inherits Rosetta's "
               "sign convention and its soluble-protein bias. Fast enough for "
-              "saturation scans, which is its advantage over FoldX and Rosetta.",
+              "saturation scans in principle, which is its advantage over FoldX and "
+              "Rosetta. In practice the bundled upstream code has no prediction entry "
+              "point: src/run_pipeline.py is the paper's reproduction script, which "
+              "retrains the cavity model and ignores the arguments passed to it. The "
+              "only inference path upstream ships is RaSPLab.ipynb, which upstream "
+              "marks non-functional. This predictor therefore fails fast and reports "
+              "itself unavailable rather than returning a number nobody can trust.",
         install_hint="python3 -m vepbench install-env rasp",
     ),
     runner_name="rasp.py",

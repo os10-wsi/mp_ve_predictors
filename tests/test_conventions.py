@@ -37,6 +37,9 @@ EXPECTED_DIRECTION = {
     "eve_full": MORE_DELETERIOUS, "eve_domain": MORE_DELETERIOUS,
     # VESPA outputs a probability that the substitution has an effect.
     "vespa": MORE_DELETERIOUS,
+    # AlphaMissense's am_pathogenicity runs 0 to 1, higher being more likely
+    # pathogenic.
+    "alphamissense": MORE_DELETERIOUS,
     # Rosetta and FoldX: positive ddG is destabilising.
     "foldx": MORE_DELETERIOUS, "rasp": MORE_DELETERIOUS,
     "thermompnn": MORE_DELETERIOUS, "saprot_dg": MORE_DELETERIOUS,

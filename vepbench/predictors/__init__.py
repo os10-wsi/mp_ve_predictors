@@ -13,6 +13,7 @@ from vepbench.predictors import (
     huggingface_plm,  # noqa: F401
     inverse_folding,  # noqa: F401
     newer,  # noqa: F401
+    precomputed,  # noqa: F401
     stability,  # noqa: F401
 )
 from vepbench.predictors.base import (  # noqa: F401

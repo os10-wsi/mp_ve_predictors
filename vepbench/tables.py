@@ -14,6 +14,7 @@ proteome scale.
 
 from __future__ import annotations
 
+import functools
 import logging
 from pathlib import Path
 
@@ -31,6 +32,7 @@ FALLBACK_ROW_LIMIT = 5_000_000
 _INSTALL_HINT = "pip install 'vepbench[proteome]'  (or: pip install pyarrow)"
 
 
+
 class TableError(RuntimeError):
     pass
 
@@ -43,6 +45,13 @@ def have_parquet() -> bool:
     return True
 
 
+@functools.cache
+def _warn_about_the_fallback() -> None:
+    """A proteome run writes thousands of partitions; say this once."""
+    log.warning("pyarrow is missing; writing gzipped CSV instead of Parquet. This "
+                "will not hold a proteome-scale table. %s", _INSTALL_HINT)
+
+
 def _write_frame(path: Path, frame: pd.DataFrame) -> None:
     """Write one frame atomically, in the format the path's suffix names."""
     fallback = path.name.endswith(FALLBACK_SUFFIX)
@@ -52,7 +61,7 @@ def _write_frame(path: Path, frame: pd.DataFrame) -> None:
             f"store, and pyarrow is not installed. {_INSTALL_HINT}"
         )
     if fallback:
-        log.warning("pyarrow is missing; writing %s as gzipped CSV. %s", path.name, _INSTALL_HINT)
+        _warn_about_the_fallback()
     tmp = path.with_name(path.name + ".tmp")
     if fallback:
         frame.to_csv(tmp, index=False, compression="gzip")

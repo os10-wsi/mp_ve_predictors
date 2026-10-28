@@ -1,0 +1,247 @@
+"""The `vepbench proteome` stages, driven through the CLI."""
+
+from __future__ import annotations
+
+import gzip
+import json
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from vepbench.cli import main
+from vepbench.schema import HARMONIZED_SUFFIX
+
+SEQUENCE = "MGRGLMFVKQ"
+
+
+@pytest.fixture
+def small_set(paths, monkeypatch):
+    """A two-protein manifest with cached UniProt entries, as define leaves it."""
+    directory = paths.outputs / "proteome" / "testset"
+    directory.mkdir(parents=True)
+    manifest = pd.DataFrame({
+        "uniprot_id": ["P00001", "P00002"],
+        "entry_name": ["ONE_HUMAN", "TWO_HUMAN"],
+        "gene": ["GENEA", "GENEB"],
+        "protein_name": ["One", "Two"],
+        "length": [10, 10], "n_tm_segments": [2, 1], "tm_residues": [4, 2],
+        "n_intramem_segments": [0, 0], "tm_evidence": ["predicted"] * 2,
+        "membrane_topology": ["multipass", "singlepass"],
+    })
+    manifest.to_csv(directory / "manifest.tsv", sep="\t", index=False)
+    for accession in manifest["uniprot_id"]:
+        (paths.annotations / f"{accession}.json").write_text(json.dumps({
+            "uniprot_id": accession, "sequence": SEQUENCE, "features": [],
+        }))
+    return directory
+
+
+def write_clinvar_source(path, genes=("GENEA", "GENEB")):
+    header = ["Type", "Name", "GeneSymbol", "ClinicalSignificance", "ReviewStatus",
+              "NumberSubmitters", "PhenotypeList", "VariationID", "Origin",
+              "OriginSimple", "Assembly"]
+    rows = []
+    identifier = 0
+    for gene in genes:
+        for position, (wt, mut, significance) in enumerate([
+            ("Met", "Val", "Pathogenic"), ("Gly", "Ser", "Benign"),
+            ("Arg", "Trp", "Pathogenic"), ("Gly", "Ala", "Benign"),
+            ("Leu", "Pro", "Pathogenic"), ("Met", "Thr", "Benign"),
+            ("Phe", "Ser", "Pathogenic"), ("Val", "Asp", "Benign"),
+            ("Lys", "Glu", "Pathogenic"), ("Gln", "His", "Benign"),
+        ], start=1):
+            identifier += 1
+            rows.append([
+                "single nucleotide variant",
+                f"NM_1.1({gene}):c.1A>G (p.{wt}{position}{mut})", gene, significance,
+                "criteria provided, multiple submitters, no conflicts", "3", "Cond",
+                str(identifier), "germline", "germline", "GRCh38",
+            ])
+    with gzip.open(path, "wt") as handle:
+        handle.write("\t".join(header) + "\n")
+        for item in rows:
+            handle.write("\t".join(item) + "\n")
+    return path
+
+
+def write_alphamissense_source(path, accessions=("P00001", "P00002")):
+    with gzip.open(path, "wt") as handle:
+        handle.write("# stand-in\n")
+        handle.write("uniprot_id\tprotein_variant\tam_pathogenicity\tam_class\n")
+        for accession in accessions:
+            for position, aa in enumerate(SEQUENCE, start=1):
+                for mut in "ACDEFGHIKLMNPQRSTVWY":
+                    if mut == aa:
+                        continue
+                    handle.write(f"{accession}\t{aa}{position}{mut}\t0.5\tambiguous\n")
+    return path
+
+
+def write_predictions(paths, accession, predictors=("alpha", "beta"), seed=0):
+    rng = np.random.default_rng(seed)
+    rows = []
+    for position, wt in enumerate(SEQUENCE, start=1):
+        for mut in "ACDEFGHIKLMNPQRSTVWY":
+            if mut == wt:
+                continue
+            rows.append({"uniprot_id": accession, "position": position,
+                         "wt_aa": wt, "mut_aa": mut, "variant": f"{wt}{position}{mut}"})
+    frame = pd.DataFrame(rows)
+    for name in predictors:
+        frame[f"{name}{HARMONIZED_SUFFIX}"] = rng.normal(size=len(frame))
+    frame["in_transmembrane"] = rng.random(len(frame)) < 0.5
+    directory = paths.output_dir(accession)
+    directory.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(directory / "predictions_wide.csv", index=False)
+    return frame
+
+
+class TestDefine:
+    def test_count_only_reaches_no_further_than_the_count(self, paths, monkeypatch):
+        seen = {}
+
+        def fake_count(query, **kwargs):
+            seen["query"] = query
+            return 4242
+
+        monkeypatch.setattr("vepbench.proteome.count_matches", fake_count)
+        monkeypatch.setattr("vepbench.proteome.fetch_manifest", _must_not_run)
+        assert main(["proteome", "define", "--set", "human_membrane",
+                     "--count-only"]) == 0
+        assert "KW-0812" in seen["query"]
+
+    def test_an_unknown_set_name_fails_before_any_download(self, paths, capsys):
+        from vepbench.proteome import ProteomeError
+
+        with pytest.raises(ProteomeError, match="human_membrane"):
+            main(["proteome", "define", "--set", "nonsense"])
+
+
+def _must_not_run(*args, **kwargs):
+    raise AssertionError("this stage should not have run")
+
+
+class TestFetchData:
+    def test_clinvar_is_mapped_and_both_artefacts_are_written(self, paths, small_set,
+                                                              tmp_path, capsys):
+        source = write_clinvar_source(tmp_path / "variant_summary.txt.gz")
+        code = main(["proteome", "fetch-data", "--set", "testset",
+                     "--only", "clinvar", "--clinvar-file", str(source)])
+        assert code == 0
+        assert (small_set / "clinvar" / "mapping_report.tsv").exists()
+        out = capsys.readouterr().out
+        assert "pathogenic" in out
+
+    def test_a_gene_outside_the_manifest_is_reported_not_dropped_silently(
+        self, paths, small_set, tmp_path, capsys
+    ):
+        source = write_clinvar_source(tmp_path / "vs.txt.gz", genes=("GENEA", "ABSENT"))
+        main(["proteome", "fetch-data", "--set", "testset", "--only", "clinvar",
+              "--clinvar-file", str(source)])
+        assert "gene_not_in_manifest" in capsys.readouterr().out
+
+    def test_alphamissense_is_sliced_per_accession(self, paths, small_set, tmp_path):
+        from vepbench.alphamissense import slice_path
+
+        source = write_alphamissense_source(tmp_path / "am.tsv.gz")
+        assert main(["proteome", "fetch-data", "--set", "testset",
+                     "--only", "alphamissense",
+                     "--alphamissense-file", str(source)]) == 0
+        assert slice_path("P00001", paths=paths).exists()
+        assert slice_path("P00002", paths=paths).exists()
+
+    def test_a_sliced_protein_can_then_be_scored(self, paths, small_set, tmp_path):
+        from vepbench.alphamissense import load_slice
+
+        write_alphamissense_source(tmp_path / "am.tsv.gz")
+        main(["proteome", "fetch-data", "--set", "testset", "--only", "alphamissense",
+              "--alphamissense-file", str(tmp_path / "am.tsv.gz")])
+        lookup = load_slice("P00001", paths=paths)
+        assert lookup["M1V"] == (0.5, "ambiguous")
+
+    def test_mapping_without_cached_sequences_fails_with_the_fix(
+        self, paths, small_set, tmp_path, capsys
+    ):
+        for accession in ("P00001", "P00002"):
+            (paths.annotations / f"{accession}.json").unlink()
+        source = write_clinvar_source(tmp_path / "vs.txt.gz")
+        code = main(["proteome", "fetch-data", "--set", "testset", "--only", "clinvar",
+                     "--clinvar-file", str(source)])
+        assert code == 1
+        assert "no UniProt sequences are cached" in capsys.readouterr().err
+
+
+class TestRun:
+    def test_without_submit_the_command_is_printed_and_nothing_runs(
+        self, paths, small_set, capsys
+    ):
+        assert main(["proteome", "run", "--set", "testset"]) == 0
+        out = capsys.readouterr().out
+        assert "submit_job.sh" in out
+        assert "--predictors proteome" in out
+        assert (small_set / "to_run.txt").read_text().split() == ["P00001", "P00002"]
+
+    def test_proteins_already_run_can_be_left_out(self, paths, small_set, capsys):
+        write_predictions(paths, "P00001")
+        main(["proteome", "run", "--set", "testset", "--skip-done"])
+        assert (small_set / "to_run.txt").read_text().split() == ["P00002"]
+
+    def test_long_proteins_can_be_excluded(self, paths, small_set, capsys):
+        assert main(["proteome", "run", "--set", "testset", "--max-length", "5"]) == 0
+        assert "nothing left to run" in capsys.readouterr().out
+
+
+class TestAggregateAndAnalyse:
+    def _prepare(self, paths, small_set, tmp_path, predictors=("alpha", "beta")):
+        write_predictions(paths, "P00001", predictors, seed=1)
+        write_predictions(paths, "P00002", predictors, seed=2)
+        source = write_clinvar_source(tmp_path / "vs.txt.gz")
+        main(["proteome", "fetch-data", "--set", "testset", "--only", "clinvar",
+              "--clinvar-file", str(source)])
+
+    def test_aggregate_reports_coverage_per_predictor(self, paths, small_set,
+                                                      tmp_path, capsys):
+        self._prepare(paths, small_set, tmp_path)
+        assert main(["proteome", "aggregate", "--set", "testset"]) == 0
+        out = capsys.readouterr().out
+        assert "2 of 2 proteins have predictions" in out
+        assert (small_set / "analysis" / "coverage.tsv").exists()
+
+    def test_analyse_writes_every_metrics_table(self, paths, small_set, tmp_path):
+        self._prepare(paths, small_set, tmp_path)
+        main(["proteome", "aggregate", "--set", "testset"])
+        assert main(["proteome", "analyse", "--set", "testset",
+                     "--min-per-class", "3", "--min-rows", "5",
+                     "--n-boot", "10", "--tracks", "0"]) == 0
+        analysis = small_set / "analysis"
+        for stem in ("metrics_pooled", "metrics_stratified", "metrics_per_protein",
+                     "metrics_summary"):
+            assert (analysis / f"{stem}.tsv").exists(), stem
+
+    def test_analyse_without_a_clinvar_table_says_which_command_is_missing(
+        self, paths, small_set, capsys
+    ):
+        assert main(["proteome", "analyse", "--set", "testset"]) == 1
+        assert "fetch-data" in capsys.readouterr().err
+
+    def test_analyse_draws_the_requested_per_protein_tracks(self, paths, small_set,
+                                                            tmp_path):
+        self._prepare(paths, small_set, tmp_path)
+        main(["proteome", "aggregate", "--set", "testset"])
+        main(["proteome", "analyse", "--set", "testset", "--min-per-class", "3",
+              "--min-rows", "5", "--n-boot", "10", "--tracks", "1"])
+        tracks = list((small_set / "plots" / "per_protein").glob("*.png"))
+        assert len(tracks) == 1
+
+    def test_the_analysis_joins_manifest_columns_for_stratifying(self, paths, small_set,
+                                                                 tmp_path):
+        from vepbench import tables
+
+        self._prepare(paths, small_set, tmp_path)
+        main(["proteome", "aggregate", "--set", "testset"])
+        main(["proteome", "analyse", "--set", "testset", "--min-per-class", "3",
+              "--min-rows", "5", "--n-boot", "10", "--tracks", "0"])
+        joined = tables.read_table(small_set / "analysis" / "labelled_variants")
+        assert "membrane_topology" in joined.columns
+        assert "in_transmembrane" in joined.columns

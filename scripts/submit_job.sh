@@ -9,7 +9,7 @@
 #
 # The GPU queue defaults to `gpu`; --queue or $VEPBENCH_QUEUE overrides it.
 #
-# Writes a self-contained job script under outputs/jobs/ and submits it with
+# Writes a self-contained job script under \$VEPBENCH_OUTPUTS/jobs/ and submits it with
 # bsub. The script is kept, so you can read what ran, edit it and resubmit by
 # hand without going through this wrapper.
 #
@@ -197,7 +197,11 @@ print("	".join(sorted(blocked)))
   fi
 fi
 
-JOB_DIR="$ROOT/outputs/jobs"
+# Job scripts and logs belong with the analysis they produced, so they
+# follow VEPBENCH_OUTPUTS rather than always landing in the checkout. A run
+# directed elsewhere would otherwise leave its logs behind in a tree that
+# has nothing else to do with it.
+JOB_DIR="${VEPBENCH_OUTPUTS:-$ROOT/outputs}/jobs"
 LOG_DIR="$JOB_DIR/logs"
 mkdir -p "$LOG_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"

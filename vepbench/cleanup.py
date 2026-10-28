@@ -119,19 +119,35 @@ def _uv_cache(paths: Paths) -> list[Path]:
     return [paths.uv_cache] if paths.uv_cache.is_dir() else []
 
 
+#: Directories under outputs/ that are not one protein's results.
+_NOT_A_PROTEIN = {"jobs", "proteome"}
+
+
 def _results(paths: Paths) -> list[Path]:
     """The predictions themselves. Never in any default."""
     if not paths.outputs.is_dir():
         return []
-    return sorted(p for p in paths.outputs.glob("*") if p.is_dir() and p.name != "jobs")
+    return sorted(p for p in paths.outputs.glob("*")
+                  if p.is_dir() and p.name not in _NOT_A_PROTEIN)
+
+
+def _proteome(paths: Paths) -> list[Path]:
+    """Proteome manifests, the mapped ClinVar table, and the analysis.
+
+    Kept apart from `results` because the two cost quite different things
+    to rebuild: per-protein predictions cost GPU time, while this costs a
+    1.2 GB download and the ClinVar mapping pass.
+    """
+    directory = paths.outputs / "proteome"
+    return [directory] if directory.is_dir() else []
 
 
 CATEGORIES: dict[str, tuple[str, str, bool, object]] = {
     "work": ("per-run scratch under data/cache/work",
              "nothing: it is rebuilt by the next run", True, _work),
-    "jobs": ("generated job scripts under outputs/jobs",
+    "jobs": ("generated job scripts under <outputs>/jobs",
              "the record of what was submitted", True, _job_scripts),
-    "logs": ("LSF stdout and stderr under outputs/jobs/logs",
+    "logs": ("LSF stdout and stderr under <outputs>/jobs/logs",
              "the record of what the jobs printed", True, _job_logs),
     "pycache": ("__pycache__ directories in the source tree",
                 "nothing", True, _pycache),
@@ -139,8 +155,11 @@ CATEGORIES: dict[str, tuple[str, str, bool, object]] = {
                     "GPU time: every predictor reruns from scratch", False, _predictions),
     "inputs": ("cached sequences, structures and alignments",
                "network time, and the alignments take minutes each", False, _inputs),
-    "results": ("the prediction tables under outputs/<accession>",
+    "results": ("the prediction tables under <outputs>/<accession>",
                 "THE ACTUAL RESULTS of every run", False, _results),
+    "proteome": ("manifests, the mapped ClinVar table and the analysis under "
+                 "<outputs>/proteome",
+                 "a 1.2 GB download and the ClinVar mapping pass", False, _proteome),
     "venvs": ("built environments under envs/<name>/.venv",
               "an install each, but they hold ~38,000 files apiece", False, _venvs),
     "uv-cache": ("uv's package cache",

@@ -852,6 +852,9 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--plot", help="path for a summary plot (PNG)")
     bench.set_defaults(func=command_benchmark)
 
+    from vepbench.cli_proteome import add_parser as add_proteome_parser
+    add_proteome_parser(sub, common)
+
     return parser
 
 

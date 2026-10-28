@@ -251,6 +251,99 @@ Added as columns in the wide table. On by default: `rsasa`, `plddt`,
 A feature whose input is missing is **omitted**, never filled with a
 placeholder.
 
+## Proteome-wide analysis
+
+`vepbench proteome` runs the whole membrane proteome against ClinVar instead
+of one protein against a DMS table. The stages are separate commands because
+the whole thing takes days and nothing that long should have to start over:
+
+```bash
+# 1. freeze the protein set (5,243 reviewed human KW-0812 entries)
+python3 -m vepbench proteome define --set human_membrane
+
+# 2. download UniProt entries, ClinVar and AlphaMissense (run on a machine
+#    with a route to ftp.ncbi.nlm.nih.gov and storage.googleapis.com)
+python3 -m vepbench proteome fetch-data --set human_membrane
+
+# 3. submit the predictions as an LSF array
+python3 -m vepbench proteome run --set human_membrane --submit
+
+# 4. collect the per-protein outputs and score them
+python3 -m vepbench proteome aggregate --set human_membrane
+python3 -m vepbench proteome analyse  --set human_membrane
+```
+
+`aggregate` and `analyse` are safe to rerun while jobs are still finishing;
+they report how much of the proteome they actually found rather than
+assuming the run completed.
+
+### What runs at this scale, and what does not
+
+`--predictors proteome` is the default for stage 3 and expands to everything
+that can realistically cover thousands of proteins: no per-protein alignment
+to build, and no per-variant cost that explodes at saturation. The excluded
+methods and why:
+
+| excluded | reason |
+|---|---|
+| the ten MSA-based predictors | each needs an alignment built per protein. The ColabFold API rate-limits well below this volume. Build them separately first if you want this tier. |
+| `foldx` | tens of seconds per variant; the membrane proteome is thousands of CPU-years |
+| `rasp` | the bundled upstream code has no prediction entry point — see `PREDICTORS.md` |
+
+`PredictorSpec.scales_to_proteome` records the judgement, so the group stays
+correct as predictors are added.
+
+### ClinVar mapping
+
+ClinVar is organised around RefSeq transcripts and vepbench around UniProt
+canonical sequences, and for some genes those disagree about which isoform
+is canonical. A gene-symbol join alone would line up the right protein at
+the wrong coordinates and produce a table that passes every shape check
+while being nonsense.
+
+Every row therefore has to clear two gates: the gene symbol must resolve to
+exactly one reviewed accession in the manifest, and the wild-type residue
+ClinVar names must be the residue the UniProt sequence carries at that
+position. Failures are counted per gene in `clinvar/mapping_report.tsv` and
+never coerced. **Read that report before trusting the analysis.** A gene
+with a high `wild_type_residue_disagrees` count is one where the two
+databases disagree about the canonical isoform.
+
+Pathogenic and likely pathogenic become label 1, benign and likely benign
+label 0. Uncertain and conflicting classifications are kept in the table but
+left unlabelled: they are the variants a predictor is most useful for, and
+scoring against a guess about them would measure the guess.
+
+### Reading the results
+
+Lead with `metrics_summary.tsv`, the AUROC **within** each protein. Pooled
+AUROC across the proteome rewards a predictor that merely separates
+well-studied genes from the rest, because pathogenic variants are not
+distributed evenly across genes. `plots/pooled_vs_per_protein.png` shows the
+size of that gap per predictor.
+
+AlphaMissense is read from its published table rather than run locally, and
+it is calibrated against ClinVar. Its number here is not measuring the same
+thing as an unsupervised predictor's, so it is flagged as
+`trained_on_clinvar` in every results table and drawn in a separate colour
+in every figure. Its licence is CC BY-NC-SA 4.0 — non-commercial, unlike
+the permissive licences on most of the rest.
+
+### Scale
+
+The membrane proteome is 5,243 proteins, 2.9M residues and 55.6M possible
+substitutions. Install the extra that makes tables that size readable:
+
+```bash
+pip install -e '.[proteome]'     # adds pyarrow and matplotlib
+```
+
+Without pyarrow the tables fall back to gzipped CSV, which works for a
+handful of proteins and is refused above five million rows rather than
+written as a file nobody can read back. Budget roughly 250-350 GB and, more
+importantly, about 150,000 files: on a cluster it is the inode quota that
+runs out first.
+
 ## Membrane proteins
 
 This repository exists to benchmark predictors against a membrane-protein

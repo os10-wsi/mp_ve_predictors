@@ -219,3 +219,92 @@ class TestReporting:
 
     def test_an_empty_table_counts_as_empty_rather_than_failing(self):
         assert clinvar.label_counts(pd.DataFrame())["proteins"] == 0
+
+
+class TestMappingRate:
+    """The rate has to be measured against the rows that were candidates."""
+
+    def test_genes_outside_the_set_do_not_count_against_the_rate(self, tmp_path):
+        # ClinVar covers the whole genome. On the membrane proteome three
+        # quarters of it is out of scope, and counting that as failure makes
+        # a healthy run read as a broken one.
+        rows = [row("NM_1.1(ABCA1):c.1A>G (p.Arg3Gln)")]
+        rows += [row(f"NM_9(OTHER):c.{i}A>G (p.Ala1Val)", gene="OTHER",
+                     variation_id=str(100 + i)) for i in range(20)]
+        _, report = parse(tmp_path, rows)
+
+        assert report.in_scope == 1
+        assert report.total == 21
+        text = report.summary()
+        assert "1 of 1" in text
+        assert "100.0%" in text
+        assert "20 rows were in genes outside the set" in text
+
+    def test_out_of_scope_rows_are_not_listed_as_a_failure_mode(self, tmp_path):
+        rows = [row("NM_9(OTHER):c.1A>G (p.Ala1Val)", gene="OTHER")]
+        _, report = parse(tmp_path, rows)
+        assert "gene_not_in_manifest:" not in report.summary()
+
+    def test_a_set_with_nothing_in_scope_does_not_divide_by_zero(self, tmp_path):
+        _, report = parse(tmp_path, [row("NM_9(OTHER):c.1A>G (p.Ala1Val)", gene="OTHER")])
+        assert "0.0%" in report.summary()
+
+
+class TestSuspectGenes:
+    """A gene symbol can resolve to the wrong protein entirely."""
+
+    def _report(self, per_gene):
+        from collections import Counter
+
+        from vepbench.clinvar import MappingReport
+
+        report = MappingReport()
+        report.per_gene = {g: Counter(c) for g, c in per_gene.items()}
+        for counter in report.per_gene.values():
+            report.counts.update(counter)
+        return report
+
+    def test_a_gene_failing_most_attempts_is_flagged(self):
+        # PRNP's shape: the manifest holds the 73-residue alternative reading
+        # frame, because the main prion protein is GPI-anchored and carries
+        # no transmembrane keyword. Rows that pass did so by coincidence.
+        report = self._report({
+            "PRNP": {clinvar.MAPPED: 4, clinvar.OUT_OF_RANGE: 180},
+        })
+        assert report.suspect_genes() == [("PRNP", 4, 184)]
+
+    def test_a_gene_mapping_nearly_everything_is_not_flagged(self):
+        report = self._report({
+            "ABCA1": {clinvar.MAPPED: 900, clinvar.WT_MISMATCH: 10},
+        })
+        assert report.suspect_genes() == []
+
+    def test_a_gene_that_mapped_nothing_is_not_flagged(self):
+        # Nothing got through, so there is nothing to mistrust; it shows up
+        # in the failure counts instead.
+        report = self._report({"GONE": {clinvar.OUT_OF_RANGE: 50}})
+        assert report.suspect_genes() == []
+
+    def test_the_summary_names_the_suspect_genes(self):
+        report = self._report({
+            "PRNP": {clinvar.MAPPED: 4, clinvar.OUT_OF_RANGE: 180},
+        })
+        text = report.summary()
+        assert "wrong isoform" in text
+        assert "PRNP: 4 of 184" in text
+
+    def test_the_per_gene_frame_carries_the_fraction_and_the_flag(self):
+        report = self._report({
+            "PRNP": {clinvar.MAPPED: 4, clinvar.OUT_OF_RANGE: 180},
+            "ABCA1": {clinvar.MAPPED: 900, clinvar.WT_MISMATCH: 10},
+        })
+        frame = report.as_frame().set_index("gene")
+        assert bool(frame.at["PRNP", "suspect"])
+        assert not bool(frame.at["ABCA1", "suspect"])
+        assert frame.at["ABCA1", "mapped_fraction"] > 0.98
+
+    def test_a_gene_with_no_attempts_gets_no_fraction(self):
+        report = self._report({"ODD": {clinvar.NON_STANDARD: 3}})
+        frame = report.as_frame().set_index("gene")
+        assert pd.isna(frame.at["ODD", "mapped_fraction"])
+        assert not bool(frame.at["ODD", "suspect"])

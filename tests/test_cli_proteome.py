@@ -133,13 +133,17 @@ class TestFetchData:
         out = capsys.readouterr().out
         assert "pathogenic" in out
 
-    def test_a_gene_outside_the_manifest_is_reported_not_dropped_silently(
+    def test_rows_outside_the_protein_set_are_counted_separately(
         self, paths, small_set, tmp_path, capsys
     ):
+        # They are reported, but not as a failure: ClinVar covers the whole
+        # genome and most of it was never a candidate.
         source = write_clinvar_source(tmp_path / "vs.txt.gz", genes=("GENEA", "ABSENT"))
         main(["proteome", "fetch-data", "--set", "testset", "--only", "clinvar",
               "--clinvar-file", str(source)])
-        assert "gene_not_in_manifest" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "rows were in genes outside the set" in out
+        assert "gene_not_in_manifest:" not in out
 
     def test_alphamissense_is_sliced_per_accession(self, paths, small_set, tmp_path):
         from vepbench.alphamissense import slice_path
@@ -245,3 +249,88 @@ class TestAggregateAndAnalyse:
         joined = tables.read_table(small_set / "analysis" / "labelled_variants")
         assert "membrane_topology" in joined.columns
         assert "in_transmembrane" in joined.columns
+
+
+class TestUniProtRetry:
+    """A long serial fetch draws throttling; a blip must not cost a gene."""
+
+    def _manifest(self, paths, accessions):
+        directory = paths.outputs / "proteome" / "retryset"
+        directory.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({
+            "uniprot_id": accessions, "gene": [f"G{i}" for i in range(len(accessions))],
+            "length": [10] * len(accessions),
+        }).to_csv(directory / "manifest.tsv", sep="\t", index=False)
+        return pd.read_csv(directory / "manifest.tsv", sep="\t")
+
+    def test_an_entry_that_fails_once_is_retried_and_kept(self, paths, monkeypatch):
+        from vepbench import cli_proteome
+        from vepbench.uniprot import UniProtError
+
+        monkeypatch.setattr(cli_proteome, "UNIPROT_BACKOFF_SECONDS", 0)
+        attempts: dict[str, int] = {}
+
+        def flaky(accession, **kwargs):
+            attempts[accession] = attempts.get(accession, 0) + 1
+            if accession == "P00002" and attempts[accession] == 1:
+                raise UniProtError("503 from UniProt")
+            (paths.annotations / f"{accession}.json").write_text(
+                json.dumps({"uniprot_id": accession, "sequence": "MG", "features": []})
+            )
+
+        monkeypatch.setattr("vepbench.uniprot.fetch_uniprot", flaky)
+        manifest = self._manifest(paths, ["P00001", "P00002"])
+        cli_proteome._fetch_uniprot(manifest, offline=False)
+
+        assert attempts["P00002"] == 2
+        assert (paths.annotations / "P00002.json").exists()
+
+    def test_an_entry_that_never_comes_back_is_written_down(self, paths, monkeypatch,
+                                                            caplog):
+        from vepbench import cli_proteome
+        from vepbench.uniprot import UniProtError
+
+        monkeypatch.setattr(cli_proteome, "UNIPROT_BACKOFF_SECONDS", 0)
+
+        def always_fails(accession, **kwargs):
+            raise UniProtError("gone")
+
+        monkeypatch.setattr("vepbench.uniprot.fetch_uniprot", always_fails)
+        manifest = self._manifest(paths, ["P00001"])
+        cli_proteome._fetch_uniprot(manifest, offline=False)
+
+        record = paths.annotations / "uniprot_fetch_failures.txt"
+        assert record.read_text().split() == ["P00001"]
+
+    def test_a_successful_pass_does_not_retry(self, paths, monkeypatch):
+        from vepbench import cli_proteome
+
+        calls: list[str] = []
+
+        def works(accession, **kwargs):
+            calls.append(accession)
+            (paths.annotations / f"{accession}.json").write_text(
+                json.dumps({"uniprot_id": accession, "sequence": "MG", "features": []})
+            )
+
+        monkeypatch.setattr("vepbench.uniprot.fetch_uniprot", works)
+        manifest = self._manifest(paths, ["P00001", "P00002"])
+        cli_proteome._fetch_uniprot(manifest, offline=False)
+        assert calls == ["P00001", "P00002"]
+
+    def test_offline_does_not_retry(self, paths, monkeypatch):
+        # Nothing about waiting makes a cache miss resolve itself.
+        from vepbench import cli_proteome
+        from vepbench.uniprot import UniProtError
+
+        monkeypatch.setattr(cli_proteome, "UNIPROT_BACKOFF_SECONDS", 0)
+        calls: list[str] = []
+
+        def not_cached(accession, **kwargs):
+            calls.append(accession)
+            raise UniProtError("not cached and --offline was requested")
+
+        monkeypatch.setattr("vepbench.uniprot.fetch_uniprot", not_cached)
+        manifest = self._manifest(paths, ["P00001"])
+        cli_proteome._fetch_uniprot(manifest, offline=True)
+        assert calls == ["P00001"]

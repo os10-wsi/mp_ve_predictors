@@ -104,26 +104,83 @@ class MappingReport:
     def total(self) -> int:
         return sum(self.counts.values())
 
+    @property
+    def in_scope(self) -> int:
+        """Rows in a gene the protein set actually contains.
+
+        ClinVar covers the whole genome, so most rows belong to genes that
+        were never in scope. Counting those as mapping failures makes a
+        healthy run look broken: on the human membrane proteome they are
+        three quarters of the file.
+        """
+        return self.total - self.counts[UNKNOWN_GENE]
+
+    def suspect_genes(self, min_mapped: int = 1, threshold: float = 0.5
+                      ) -> list[tuple[str, int, int]]:
+        """Genes whose mapped rows should not be trusted.
+
+        When a gene symbol resolves to the wrong protein -- a short
+        alternative reading frame carrying the transmembrane keyword while
+        the main product does not, as PRNP does -- most of its rows fail the
+        range or wild-type check. The few that pass did so by coincidence,
+        on a protein ClinVar was not describing, and nothing downstream can
+        tell them from real matches.
+
+        Returns (gene, mapped, attempted) for genes where under
+        ``threshold`` of the attempts landed.
+        """
+        out = []
+        for gene, counter in self.per_gene.items():
+            mapped = counter.get(MAPPED, 0)
+            attempted = mapped + counter.get(WT_MISMATCH, 0) + counter.get(OUT_OF_RANGE, 0)
+            if mapped >= min_mapped and attempted and mapped / attempted < threshold:
+                out.append((gene, mapped, attempted))
+        return sorted(out, key=lambda row: row[1], reverse=True)
+
     def summary(self) -> str:
         mapped = self.counts[MAPPED]
+        out_of_scope = self.counts[UNKNOWN_GENE]
+        scope = self.in_scope
+        share = 100 * mapped / scope if scope else 0.0
         lines = [
-            f"ClinVar mapping: {mapped:,} of {self.total:,} missense rows "
-            f"({100 * mapped / self.total:.1f}%) mapped onto UniProt coordinates"
+            f"ClinVar mapping: {mapped:,} of {scope:,} rows in genes this protein "
+            f"set contains ({share:.1f}%) mapped onto UniProt coordinates"
         ]
+        if out_of_scope:
+            lines.append(
+                f"  a further {out_of_scope:,} rows were in genes outside the set "
+                f"and were never candidates"
+            )
         for outcome, count in self.counts.most_common():
-            if outcome == MAPPED:
+            if outcome in (MAPPED, UNKNOWN_GENE):
                 continue
             lines.append(f"  {outcome}: {count:,}")
             for example in self.examples.get(outcome, [])[:2]:
                 lines.append(f"      e.g. {example}")
+
+        suspect = self.suspect_genes()
+        if suspect:
+            total_suspect = sum(mapped for _gene, mapped, _attempted in suspect)
+            lines.append(
+                f"  {len(suspect)} gene(s) mapped under half their attempts, so their "
+                f"{total_suspect:,} mapped row(s) may be hitting the wrong isoform:"
+            )
+            for gene, got, attempted in suspect[:5]:
+                lines.append(f"      {gene}: {got} of {attempted}")
+            lines.append("      see the suspect column in mapping_report.tsv")
         return "\n".join(lines)
 
     def as_frame(self) -> pd.DataFrame:
         outcomes = sorted({o for counter in self.per_gene.values() for o in counter})
+        suspect = {gene for gene, _mapped, _attempted in self.suspect_genes()}
         rows = []
         for gene, counter in sorted(self.per_gene.items()):
+            mapped = counter.get(MAPPED, 0)
+            attempted = mapped + counter.get(WT_MISMATCH, 0) + counter.get(OUT_OF_RANGE, 0)
             row = {"gene": gene, "total": sum(counter.values())}
             row.update({outcome: counter.get(outcome, 0) for outcome in outcomes})
+            row["mapped_fraction"] = mapped / attempted if attempted else float("nan")
+            row["suspect"] = gene in suspect
             rows.append(row)
         return pd.DataFrame(rows)
 

@@ -128,6 +128,21 @@ It needs a compute node with network, which the farm's do. The stage is
 resumable: UniProt entries and AlphaMissense slices already on disk are
 skipped, so a job that times out can simply be resubmitted.
 
+UniProt throttles a long serial run, so entries that do not come back are
+retried twice with backoff. Anything still missing is listed in
+`data/cache/annotations/uniprot_fetch_failures.txt`, and those proteins will
+be absent from the ClinVar mapping. If that file exists, re-run the stage
+before trusting the mapping:
+
+```bash
+python3 -m vepbench proteome fetch-data --set human_membrane --only uniprot
+python3 -m vepbench proteome fetch-data --set human_membrane --only clinvar
+```
+
+Not every protein gets an AlphaMissense slice either — its published table
+is a 2023 canonical snapshot, so a few dozen accessions are simply absent
+and score NaN. That is expected, not a fetch failure.
+
 ### Then read the mapping report. Really.
 
 ```bash
@@ -142,10 +157,36 @@ clear two gates — a unique gene-symbol resolution, and the wild-type residue
 matching the UniProt sequence at that position — and failures are counted
 per gene rather than coerced.
 
+**Read the percentage carefully.** It is measured against rows in genes the
+protein set actually contains, not against all of ClinVar. ClinVar covers
+the whole genome, so on the membrane proteome roughly three quarters of the
+file is out of scope and is reported separately rather than as failure. On a
+healthy run expect **above about 85%** of the in-scope rows to map; below
+that, stop and look.
+
 A gene with a high `wild_type_residue_disagrees` count is one where the two
-databases disagree about the canonical isoform. **An overall mapping rate
-below about 70% means something systematic is wrong**; stop and look rather
-than carrying on.
+databases disagree about the canonical isoform.
+
+### Suspect genes
+
+Check the `suspect` column of the report, and the genes the summary names.
+
+A gene symbol can resolve to the wrong protein entirely. PRNP is the clear
+case: the major prion protein is GPI-anchored and carries no transmembrane
+keyword, so it is not in the set, while a 73-residue alternative reading
+frame with the same gene symbol *is*. ClinVar's PRNP variants are numbered
+against the 253-residue product, so nearly all of them fail the range check
+— but a few can land on a plausible residue in the 73-residue protein and
+pass both gates. Nothing downstream can tell those from real matches.
+
+Any gene that mapped under half its attempts is flagged. Treat its mapped
+rows as unusable and exclude them:
+
+```bash
+REPORT="$VEPBENCH_OUTPUTS/proteome/human_membrane/clinvar/mapping_report.tsv"
+awk -F'\t' 'NR==1{for(i=1;i<=NF;i++)h[$i]=i} NR>1 && $h["suspect"]=="True" {print $1}' \
+  "$REPORT"
+```
 
 ## 5. Calibrate on 20 proteins before committing 5,000 jobs
 

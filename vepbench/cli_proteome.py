@@ -14,6 +14,7 @@ import argparse
 import logging
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from vepbench.config import PATHS
@@ -21,6 +22,10 @@ from vepbench.config import PATHS
 log = logging.getLogger(__name__)
 
 DEFAULT_SET = "human_membrane"
+#: Passes over the accessions that did not come back. UniProt throttles a
+#: long serial run, and those failures are transient.
+UNIPROT_ATTEMPTS = 3
+UNIPROT_BACKOFF_SECONDS = 20
 #: Predictors to draw the per-protein tracks for, if they ran.
 TRACK_PREFERENCE = ("alphamissense", "esm1v_full", "esm2_650m", "esm2_3b", "saprot")
 
@@ -91,18 +96,48 @@ def _fetch_uniprot(manifest, *, offline: bool) -> list[str]:
 
     log.info("fetching %d UniProt entries (%d already cached)",
              len(missing), len(accessions) - len(missing))
-    failed = []
-    for index, accession in enumerate(missing, start=1):
-        try:
-            fetch_uniprot(accession, paths=PATHS, offline=offline)
-        except (UniProtError, OSError) as exc:
-            failed.append(accession)
-            log.warning("%s: %s", accession, exc)
-        if index % 250 == 0:
-            log.info("  %d/%d", index, len(missing))
+
+    # Thousands of requests in a tight loop draw throttling, and a protein
+    # dropped here is silently absent from the ClinVar mapping later. Retry
+    # the stragglers with backoff rather than letting a blip cost a gene.
+    pending = list(missing)
+    failed: list[str] = []
+    for attempt in range(1, UNIPROT_ATTEMPTS + 1):
+        failed = []
+        for index, accession in enumerate(pending, start=1):
+            try:
+                fetch_uniprot(accession, paths=PATHS, offline=offline)
+            except (UniProtError, OSError) as exc:
+                failed.append(accession)
+                if attempt == UNIPROT_ATTEMPTS:
+                    log.warning("%s: %s", accession, exc)
+            if index % 250 == 0:
+                log.info("  %d/%d", index, len(pending))
+        if not failed or offline:
+            break
+        if attempt < UNIPROT_ATTEMPTS:
+            delay = UNIPROT_BACKOFF_SECONDS * attempt
+            log.info("%d entries did not come back; retrying in %ds (attempt %d of %d)",
+                     len(failed), delay, attempt + 1, UNIPROT_ATTEMPTS)
+            time.sleep(delay)
+            pending = failed
+
     if failed:
-        log.warning("%d UniProt entries could not be fetched", len(failed))
+        record = _directory_for_failures()
+        record.write_text("\n".join(failed) + "\n")
+        log.warning(
+            "%d UniProt entries could not be fetched after %d attempts. They are "
+            "listed in %s, and the proteins they name will be missing from the "
+            "ClinVar mapping. Re-run `proteome fetch-data --only uniprot` to try "
+            "again; cached entries are skipped.",
+            len(failed), UNIPROT_ATTEMPTS, record,
+        )
     return []
+
+
+def _directory_for_failures() -> Path:
+    PATHS.annotations.mkdir(parents=True, exist_ok=True)
+    return PATHS.annotations / "uniprot_fetch_failures.txt"
 
 
 def _fetch_alphamissense(manifest, args) -> list[str]:

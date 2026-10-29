@@ -212,21 +212,39 @@ Known problems below.
 
 ## 6. Launch the full run
 
+Start with a length cap. Of the 5,243 proteins, **5,051 are under 1,500
+residues and 192 are at or above** — so capping there costs 3.7% of the set
+and removes the worst of the runtime tail, where a single 14,507-residue
+protein can occupy a GPU for the better part of a day.
+
 ```bash
-python3 -m vepbench proteome run --set human_membrane --skip-done
+python3 -m vepbench proteome run --set human_membrane --max-length 1499 --skip-done
 ```
 
 Without `--submit` this writes the accession list and **prints** the submit
-command for you to read first. `--skip-done` leaves out the 20 proteins from
-calibration and anything the earlier runs already covered.
+command for you to read first. `--skip-done` leaves out the calibration
+proteins and anything earlier runs already covered.
 
-When the printed command looks right:
+When the printed command looks right, add `--submit`:
 
 ```bash
-python3 -m vepbench proteome run --set human_membrane --skip-done --submit
+python3 -m vepbench proteome run --set human_membrane --max-length 1499 --skip-done --submit
 ```
 
-This is ~5,200 array tasks at 57 concurrent. Expect several days.
+That is ~5,000 array tasks at 57 concurrent. Expect several days.
+
+The manifest still holds the whole proteome, so ClinVar mapping and the
+analysis cover everything. The long proteins are only deferred: lift the cap
+later and `--skip-done` submits just the 192 that are missing.
+
+### After killing an array, drop `--skip-done`
+
+`--skip-done` only checks whether `predictions_wide.csv` exists. A task
+killed mid-flight may have written an incomplete set of predictors, and
+`--skip-done` would then treat that protein as finished. After a `bkill`,
+resubmit without it: proteins that genuinely completed come back from the
+prediction cache in about a second each, and the half-done ones get
+finished.
 
 Monitor it:
 
@@ -310,6 +328,7 @@ in every one of 5,200 tasks. Neither blocks the run.
 
 | symptom | cause |
 |---|---|
+| `analyse` says "no ClinVar table" | stage 4 never completed. It is a separate batch job; run it and re-run `analyse` |
 | a stage says it found nothing | `VEPBENCH_OUTPUTS` not set in this shell — `source "$ROOT/proteome-env.sh"` |
 | `Disk quota exceeded` | inodes, not bytes. `lfs quota -u $USER`, then `vepbench clean` |
 | tables written as `.csv.gz` | pyarrow missing: `pip install -e '.[proteome]'` |

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -172,12 +173,28 @@ def cache_key(*parts: object) -> str:
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
+def unique_temp(path: Path) -> Path:
+    """A scratch path no other process will pick.
+
+    The caches are written by whatever is running: a job array with dozens
+    of concurrent tasks, and `proteome fetch-data` walking the same
+    accessions alongside it. A fixed ``.tmp`` name means two processes
+    writing the same entry interleave into one file, and the rename then
+    publishes whatever that mixture happened to be. os.replace is atomic;
+    the file being renamed has to be private for that to mean anything.
+    """
+    return path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+
+
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
 def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, default=str))
-    tmp.replace(path)
+    tmp = unique_temp(path)
+    try:
+        tmp.write_text(json.dumps(payload, indent=2, default=str))
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)

@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from vepbench.config import unique_temp
 from vepbench.schema import LONG_COLUMNS, SchemaError, empty_long_frame, validate_long_frame
 
 log = logging.getLogger(__name__)
@@ -91,9 +92,12 @@ def _flock_with_timeout(handle: int, timeout: float, path: Path) -> None:
 def write_csv(path: Path, frame: pd.DataFrame) -> None:
     """Write a CSV that a reader never catches half-finished."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    frame.to_csv(tmp, index=False)
-    tmp.replace(path)
+    tmp = unique_temp(path)
+    try:
+        frame.to_csv(tmp, index=False)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def load_existing_long(path: Path, sequence: str | None = None) -> pd.DataFrame:

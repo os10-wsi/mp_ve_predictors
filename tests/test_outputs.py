@@ -12,6 +12,7 @@ import multiprocessing as mp
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from vepbench.config import RunConfig
 from vepbench.outputs import (
@@ -190,3 +191,78 @@ def test_write_csv_leaves_no_partial_file(tmp_path, sequence):
     write_csv(path, _long_frame(sequence, "a"))
     assert not list(tmp_path.glob("*.tmp"))
     assert len(pd.read_csv(path)) == len(sequence) * 19
+
+
+class TestConcurrentWrites:
+    """A job array and `proteome fetch-data` write the same caches at once.
+
+    The race these guard is hard to reproduce on a local filesystem, where
+    one large write() usually lands whole. On Lustre it is striped across
+    servers and does not, which is where this code runs. So the property
+    tested is the one that is actually decidable: each write gets a private
+    scratch file, which is what makes the rename meaningful.
+    """
+
+    def test_each_write_uses_a_scratch_path_of_its_own(self, tmp_path):
+        from vepbench.config import unique_temp
+
+        target = tmp_path / "P00001.json"
+        names = {unique_temp(target) for _ in range(200)}
+        assert len(names) == 200
+        assert all(p.parent == target.parent for p in names)
+        assert all(p.name.endswith(".tmp") for p in names)
+
+    def test_the_scratch_name_includes_the_process(self, tmp_path):
+        import os
+
+        from vepbench.config import unique_temp
+
+        assert str(os.getpid()) in unique_temp(tmp_path / "x.json").name
+
+    def test_no_scratch_files_are_left_behind(self, tmp_path):
+        from vepbench.config import write_json
+
+        write_json(tmp_path / "thing.json", {"a": 1})
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_a_failed_write_leaves_the_previous_file_intact(self, tmp_path):
+        import json
+
+        from vepbench.config import write_json
+
+        target = tmp_path / "thing.json"
+        write_json(target, {"good": True})
+        # default=str swallows most unserialisable values, so this needs a
+        # payload json genuinely cannot encode.
+        circular: dict = {}
+        circular["self"] = circular
+        with pytest.raises(ValueError):
+            write_json(target, circular)
+        assert json.loads(target.read_text()) == {"good": True}
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_many_writers_of_one_file_leave_it_readable(self, tmp_path):
+        """A smoke test: whatever wins, the file parses and is not a blend."""
+        import json
+        import multiprocessing
+
+        from vepbench.config import write_json
+
+        target = tmp_path / "P00001.json"
+
+        def writer(letter, length, times):
+            for _ in range(times):
+                write_json(target, {"sequence": letter * length})
+
+        processes = [
+            multiprocessing.Process(target=writer, args=("A", 50, 40)),
+            multiprocessing.Process(target=writer, args=("B", 500_000, 40)),
+        ]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=60)
+
+        payload = json.loads(target.read_text())
+        assert set(payload["sequence"]) in ({"A"}, {"B"})
+        assert list(tmp_path.glob("*.tmp")) == []

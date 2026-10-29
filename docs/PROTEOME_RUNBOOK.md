@@ -316,6 +316,32 @@ burial, pLDDT, architecture and review status, and draws the figures.
 Re-run both whenever more jobs land. Nothing is recomputed that does not
 need to be.
 
+**The bootstrap dominates `analyse`.** With ~50,000 labelled variants, 24
+predictors and 13 strata, the default `--n-boot 1000` is about 28 minutes;
+`--n-boot 200` is about 6 and the confidence intervals are no wider in any
+way that matters at that sample size. Use the smaller value while you are
+re-running against partial results, and the default once for the figures
+you keep:
+
+```bash
+python3 -m vepbench proteome analyse --set human_membrane --n-boot 200
+```
+
+## Watching the run
+
+```bash
+python3 -m vepbench proteome progress --set human_membrane --max-length 1499
+```
+
+Reports how many proteins are finished, which predictors are costing the
+most, which are failing everywhere, and the remaining time projected from
+observed throughput rather than from an estimate. Pass the same
+`--max-length` the array was submitted with, or the denominator counts
+proteins that were never queued.
+
+Run it an hour after launching: the first completed tasks are the only
+honest source for how long the rest will take.
+
 ## 8. Read the results
 
 ```

@@ -377,6 +377,86 @@ def _protein_tracks(args, manifest, labelled, summary, directory: Path) -> None:
         )
 
 
+def command_progress(args: argparse.Namespace) -> int:
+    """How far the run has got, and how long the rest will take.
+
+    The runtime of this pipeline cannot be predicted from the outside: it
+    depends on the GPUs you were given, how many tasks are actually
+    resident, and which predictors turn out to dominate. So this measures
+    rather than estimates. Throughput is taken from the completed tasks
+    themselves, which folds in queueing, startup and failures -- everything
+    a per-predictor sum would leave out.
+    """
+    import time
+
+    from vepbench.aggregate import protein_status
+    from vepbench.proteome import load_manifest
+
+    manifest = load_manifest(args.protein_set, paths=PATHS)
+    if args.max_length:
+        manifest = manifest.loc[manifest["length"] <= args.max_length]
+    expected = manifest["uniprot_id"].tolist()
+
+    finished: list[float] = []
+    seconds: dict[str, list[float]] = {}
+    failures: dict[str, int] = {}
+    done = 0
+    for accession in expected:
+        if not (PATHS.output_dir(accession) / "predictions_wide.csv").exists():
+            continue
+        done += 1
+        status = protein_status(accession, paths=PATHS)
+        if status.get("generated"):
+            finished.append(float(status["generated"]))
+        for entry in status.get("predictors", []):
+            name = entry.get("predictor", "?")
+            if entry.get("status") == "failed":
+                failures[name] = failures.get(name, 0) + 1
+            value = entry.get("seconds")
+            if value and entry.get("status") == "ok":
+                seconds.setdefault(name, []).append(float(value))
+
+    remaining = len(expected) - done
+    print(f"{done:,} of {len(expected):,} proteins complete "
+          f"({100 * done / max(len(expected), 1):.1f}%), {remaining:,} to go")
+
+    if seconds:
+        print("\ncompute per protein, by predictor (excludes job startup):")
+        totals = {n: sum(v) / len(v) for n, v in seconds.items()}
+        width = max(len(n) for n in totals)
+        for name, mean in sorted(totals.items(), key=lambda kv: -kv[1]):
+            print(f"  {name:<{width}}  {mean:8.1f}s   (n={len(seconds[name])})")
+        print(f"  {'total':<{width}}  {sum(totals.values()):8.1f}s "
+              f"= {sum(totals.values()) / 60:.1f} min")
+
+    if failures:
+        print("\nfailing on every protein they ran against:")
+        for name, count in sorted(failures.items(), key=lambda kv: -kv[1]):
+            print(f"  {name}: {count:,}")
+
+    # Throughput from the completions themselves. The earliest and latest
+    # finish bracket a window during which `concurrency` tasks were running,
+    # so the rate already accounts for everything a timing sum cannot see.
+    if len(finished) >= 2 and remaining:
+        span = max(finished) - min(finished)
+        if span > 0:
+            per_hour = (len(finished) - 1) / (span / 3600)
+            hours = remaining / per_hour
+            print(f"\nobserved throughput: {per_hour:.1f} proteins/hour "
+                  f"over the last {span / 3600:.1f}h")
+            print(f"projected: {hours:.1f} hours ({hours / 24:.1f} days) remaining")
+            finish = time.strftime("%a %d %b %H:%M",
+                                   time.localtime(time.time() + hours * 3600))
+            print(f"           done around {finish}")
+        else:
+            print("\nnot enough spread in the completion times to project yet")
+    elif remaining:
+        print("\nnothing has finished yet, so there is nothing to project from")
+    else:
+        print("\nrun complete")
+    return 0
+
+
 def command_all(args: argparse.Namespace) -> int:
     """Run every stage in order, stopping at the first that fails."""
     for step in (command_define, command_fetch_data, command_run,
@@ -470,6 +550,12 @@ def add_parser(sub, common) -> None:
     analyse.add_argument("--tracks", type=int, default=25,
                          help="per-protein figures to draw (default: %(default)s)")
     analyse.set_defaults(func=command_analyse)
+
+    progress = stage("progress", "how far the run has got, and the time left")
+    progress.add_argument("--max-length", type=int,
+                          help="the cap the array was submitted with, so the "
+                               "denominator matches what is actually running")
+    progress.set_defaults(func=command_progress)
 
     everything = stage("all", "run every stage in order")
     # `all` has to satisfy every stage it calls, so it carries the union of

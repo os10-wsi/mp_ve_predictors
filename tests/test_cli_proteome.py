@@ -334,3 +334,89 @@ class TestUniProtRetry:
         manifest = self._manifest(paths, ["P00001"])
         cli_proteome._fetch_uniprot(manifest, offline=True)
         assert calls == ["P00001"]
+
+
+class TestProgress:
+    """A multi-day run needs its remaining time measured, not guessed."""
+
+    def _setup(self, paths, accessions, done, *, lengths=None, spacing=3600.0,
+               seconds=None, failed=()):
+        import time
+
+        directory = paths.outputs / "proteome" / "progset"
+        directory.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({
+            "uniprot_id": accessions,
+            "gene": [f"G{i}" for i in range(len(accessions))],
+            "length": lengths or [400] * len(accessions),
+        }).to_csv(directory / "manifest.tsv", sep="\t", index=False)
+
+        base = time.time() - spacing * len(done)
+        for index, accession in enumerate(done):
+            write_predictions(paths, accession, ("alpha", "beta"), seed=index)
+            entries = [{"predictor": n, "status": "ok", "seconds": s}
+                       for n, s in (seconds or {"alpha": 60.0, "beta": 120.0}).items()]
+            entries += [{"predictor": n, "status": "failed"} for n in failed]
+            (paths.output_dir(accession) / "status.json").write_text(json.dumps({
+                "uniprot_id": accession, "generated": base + spacing * index,
+                "predictors": entries,
+            }))
+        return directory
+
+    def test_it_counts_what_is_done_against_what_was_submitted(self, paths, capsys):
+        self._setup(paths, ["P1", "P2", "P3", "P4"], ["P1", "P2"])
+        assert main(["proteome", "progress", "--set", "progset"]) == 0
+        assert "2 of 4 proteins complete (50.0%), 2 to go" in capsys.readouterr().out
+
+    def test_the_denominator_follows_the_length_cap_that_was_used(self, paths, capsys):
+        # Projecting against proteins that were never submitted would make
+        # the run look permanently behind.
+        self._setup(paths, ["P1", "P2", "P3", "P4"], ["P1"],
+                    lengths=[400, 400, 9000, 9000])
+        main(["proteome", "progress", "--set", "progset", "--max-length", "1499"])
+        assert "1 of 2 proteins complete" in capsys.readouterr().out
+
+    def test_it_projects_the_remaining_time_from_observed_throughput(self, paths,
+                                                                     capsys):
+        # Four done, one per hour, six left -> about six hours.
+        self._setup(paths, [f"P{i}" for i in range(10)],
+                    [f"P{i}" for i in range(4)], spacing=3600.0)
+        main(["proteome", "progress", "--set", "progset"])
+        out = capsys.readouterr().out
+        assert "proteins/hour" in out
+        assert "6.0 hours" in out
+
+    def test_it_reports_which_predictors_cost_the_most(self, paths, capsys):
+        self._setup(paths, ["P1", "P2"], ["P1", "P2"],
+                    seconds={"cheap": 5.0, "expensive": 500.0})
+        main(["proteome", "progress", "--set", "progset"])
+        out = capsys.readouterr().out
+        lines = [ln for ln in out.splitlines() if "expensive" in ln or "cheap" in ln]
+        assert "expensive" in lines[0]        # most costly first
+        assert "505.0s" in out
+
+    def test_a_predictor_failing_everywhere_is_named(self, paths, capsys):
+        self._setup(paths, ["P1", "P2"], ["P1", "P2"], failed=("prosst",))
+        main(["proteome", "progress", "--set", "progset"])
+        assert "prosst: 2" in capsys.readouterr().out
+
+    def test_nothing_finished_yet_projects_nothing(self, paths, capsys):
+        self._setup(paths, ["P1", "P2"], [])
+        main(["proteome", "progress", "--set", "progset"])
+        assert "nothing has finished yet" in capsys.readouterr().out
+
+    def test_a_finished_run_says_so(self, paths, capsys):
+        self._setup(paths, ["P1"], ["P1"])
+        main(["proteome", "progress", "--set", "progset"])
+        assert "run complete" in capsys.readouterr().out
+
+    def test_a_failed_predictor_contributes_no_timing(self, paths, capsys):
+        # A predictor that failed in 0.2s must not drag the mean down and
+        # make the remaining work look cheaper than it is.
+        self._setup(paths, ["P1", "P2"], ["P1", "P2"],
+                    seconds={"real": 300.0}, failed=("prosst",))
+        capsys.readouterr()          # discard anything the setup printed
+        main(["proteome", "progress", "--set", "progset"])
+        text = capsys.readouterr().out
+        assert "300.0s" in text
+        assert "prosst" in text.split("failing on every protein")[1]

@@ -253,6 +253,10 @@ placeholder.
 
 ## Proteome-wide analysis
 
+**For the full step-by-step procedure, from `git pull` to the figures, see
+[`docs/PROTEOME_RUNBOOK.md`](docs/PROTEOME_RUNBOOK.md).** The summary here is
+what the stages are and why they are separate.
+
 `vepbench proteome` runs the whole membrane proteome against ClinVar instead
 of one protein against a DMS table. The stages are separate commands because
 the whole thing takes days and nothing that long should have to start over:

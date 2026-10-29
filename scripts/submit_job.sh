@@ -4,6 +4,8 @@
 #   bash scripts/submit_job.sh --uniprot P26678
 #   bash scripts/submit_job.sh --uniprot P26678 --predictors esm2_650m saprot
 #   bash scripts/submit_job.sh --uniprot-list ids.txt --predictors ready
+#
+# Set VEPBENCH_LSF_GROUP (or pass --group) if your cluster requires -G.
 #   bash scripts/submit_job.sh --uniprot P26678 --dry-run   # print, do not submit
 #   bash scripts/submit_job.sh --uniprot P26678 --queue gpu-huge
 #
@@ -29,7 +31,10 @@ ACCESSIONS=()
 LIST=""
 PREDICTORS=()
 FEATURES=()
-QUEUE="${VEPBENCH_QUEUE:-gpu}"       # --no-gpu switches to the CPU queue
+QUEUE="${VEPBENCH_QUEUE:-gpu}"
+# Some clusters refuse a submission that names no fairshare group. LSF reads
+# LSB_DEFAULTGROUP by itself, so -G is only added when one is given here.
+LSF_GROUP="${VEPBENCH_LSF_GROUP:-}"       # --no-gpu switches to the CPU queue
 QUEUE_SET=0                          # whether --queue or $VEPBENCH_QUEUE chose it
 if [ -n "${VEPBENCH_QUEUE:-}" ]; then QUEUE_SET=1; fi
 GPU_SPEC="${VEPBENCH_GPU_SPEC:-num=%d:mode=shared}"
@@ -62,6 +67,7 @@ while [ $# -gt 0 ]; do
     --name)          NAME="$2"; shift 2 ;;
     --one-job)       ARRAY=0; shift ;;
     --max-parallel)  MAX_PARALLEL="$2"; shift 2 ;;
+    --group)         LSF_GROUP="$2"; shift 2 ;;
     --dry-run)       DRY_RUN=1; shift ;;
     --skip-doctor)   SKIP_DOCTOR=1; shift ;;
     --)              shift; EXTRA+=("$@"); break ;;
@@ -307,6 +313,9 @@ BSUB=(bsub -J "$JOB_NAME" -q "$QUEUE" -n "$CORES"
       -W "$WALLTIME"
       -o "$LOG_DIR/${NAME}-${STAMP}.${LOG_SUFFIX}.out"
       -e "$LOG_DIR/${NAME}-${STAMP}.${LOG_SUFFIX}.err")
+if [ -n "$LSF_GROUP" ]; then
+  BSUB+=(-G "$LSF_GROUP")
+fi
 if [ "$GPUS" -gt 0 ]; then
   # shellcheck disable=SC2059  # the %d is the caller's, from --gpu-spec
   BSUB+=(-gpu "$(printf "$GPU_SPEC" "$GPUS")")

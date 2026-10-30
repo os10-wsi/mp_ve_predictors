@@ -420,3 +420,40 @@ class TestProgress:
         text = capsys.readouterr().out
         assert "300.0s" in text
         assert "prosst" in text.split("failing on every protein")[1]
+
+
+class TestSchedulerResources:
+    """Resource flags belong to the submitter, not to `vepbench run`."""
+
+    def _manifest(self, paths):
+        directory = paths.outputs / "proteome" / "resset"
+        directory.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({"uniprot_id": ["P1", "P2"], "gene": ["A", "B"],
+                      "length": [100, 200]}).to_csv(
+            directory / "manifest.tsv", sep="\t", index=False)
+        return directory
+
+    def test_memory_and_cores_reach_the_submitter(self, paths, capsys):
+        self._manifest(paths)
+        main(["proteome", "run", "--set", "resset", "--mem", "10000",
+              "--cores", "2", "--time", "8:00"])
+        out = capsys.readouterr().out
+        assert "--mem 10000" in out
+        assert "--cores 2" in out
+        assert "--time 8:00" in out
+
+    def test_they_come_before_the_handover_to_vepbench_run(self, paths, capsys):
+        # Anything after `--` is passed to `vepbench run`, which would reject
+        # --mem outright.
+        self._manifest(paths)
+        main(["proteome", "run", "--set", "resset", "--mem", "10000",
+              "--extra", "--offline"])
+        out = capsys.readouterr().out
+        assert out.index("--mem") < out.index(" -- ")
+
+    def test_resources_are_omitted_when_not_given(self, paths, capsys):
+        self._manifest(paths)
+        main(["proteome", "run", "--set", "resset"])
+        out = capsys.readouterr().out
+        assert "--mem" not in out
+        assert "--cores" not in out

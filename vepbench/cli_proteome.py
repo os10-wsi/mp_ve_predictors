@@ -236,6 +236,12 @@ def command_run(args: argparse.Namespace) -> int:
         "--predictors", *args.predictors,
         "--max-parallel", str(args.max_parallel),
     ]
+    # Scheduler resources belong to the submitter, not to `vepbench run`, so
+    # they go before the `--` that hands the rest over.
+    for flag, value in (("--mem", args.mem), ("--cores", args.cores),
+                        ("--time", args.time), ("--queue", args.queue)):
+        if value:
+            command += [flag, str(value)]
     if args.dry_run:
         command.append("--dry-run")
     if args.extra:
@@ -528,6 +534,11 @@ def add_parser(sub, common) -> None:
                      help="leave out proteins that already have predictions")
     run.add_argument("--submit", action="store_true",
                      help="actually submit; without it the command is printed")
+    run.add_argument("--mem", type=int,
+                     help="megabytes per array task (submitter default: 32000)")
+    run.add_argument("--cores", type=int, help="cores per array task")
+    run.add_argument("--time", help="walltime per array task, as H:MM")
+    run.add_argument("--queue", help="LSF queue (default: gpu)")
     run.add_argument("--dry-run", action="store_true",
                      help="pass --dry-run to the submitter")
     run.add_argument("--extra", nargs=argparse.REMAINDER,
@@ -574,6 +585,10 @@ def add_parser(sub, common) -> None:
     everything.add_argument("--include-somatic", action="store_true")
     everything.add_argument("--predictors", nargs="+", default=["proteome"])
     everything.add_argument("--max-parallel", type=int, default=57)
+    everything.add_argument("--mem", type=int)
+    everything.add_argument("--cores", type=int)
+    everything.add_argument("--time")
+    everything.add_argument("--queue")
     everything.add_argument("--skip-done", action="store_true")
     everything.add_argument("--submit", action="store_true",
                             help="submit the array; without it `all` stops before "

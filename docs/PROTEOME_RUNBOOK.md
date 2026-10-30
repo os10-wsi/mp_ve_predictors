@@ -274,6 +274,13 @@ python3 -m vepbench proteome run --set human_membrane --max-length 1499 --skip-d
 
 That is ~5,000 array tasks at 57 concurrent. Expect several days.
 
+`--max-parallel 0` submits the array unthrottled, letting LSF start as many
+tasks as your fairshare allows. That is the right choice when the queue has
+a weekend to drain and you would rather take capacity as it frees up. The
+one caution is the GPU: under `mode=shared`, more concurrent tasks means
+more chance that two of them land on the same card with `esm2_3b` (~13 GB)
+active, and a 16 GB V100 will not hold both.
+
 The manifest still holds the whole proteome, so ClinVar mapping and the
 analysis cover everything. The long proteins are only deferred: lift the cap
 later and `--skip-done` submits just the 192 that are missing.

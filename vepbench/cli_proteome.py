@@ -527,7 +527,9 @@ def add_parser(sub, common) -> None:
                      help="predictor names or a group (default: proteome, which is "
                           "everything that can run at this scale)")
     run.add_argument("--max-parallel", type=int, default=57,
-                     help="array tasks running at once (default: %(default)s)")
+                     help="array tasks running at once, or 0 for unthrottled, "
+                          "letting LSF start as many as your fairshare allows "
+                          "(default: %(default)s)")
     run.add_argument("--max-length", type=int,
                      help="skip proteins longer than this")
     run.add_argument("--skip-done", action="store_true",

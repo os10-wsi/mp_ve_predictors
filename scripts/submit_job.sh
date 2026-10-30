@@ -5,6 +5,8 @@
 #   bash scripts/submit_job.sh --uniprot P26678 --predictors esm2_650m saprot
 #   bash scripts/submit_job.sh --uniprot-list ids.txt --predictors ready
 #
+# --max-parallel 0 submits the array unthrottled.
+#
 # Set VEPBENCH_LSF_GROUP (or pass --group) if your cluster requires -G.
 #   bash scripts/submit_job.sh --uniprot P26678 --dry-run   # print, do not submit
 #   bash scripts/submit_job.sh --uniprot P26678 --queue gpu-huge
@@ -305,7 +307,14 @@ chmod +x "$JOB_SCRIPT"
 JOB_NAME="$NAME"
 LOG_SUFFIX="%J"
 if [ "$USE_ARRAY" = "1" ]; then
-  JOB_NAME="${NAME}[1-${N_IDS}]%${MAX_PARALLEL}"
+  # %N throttles how many array tasks run at once. Leaving it off lets LSF
+  # start as many as your fairshare allows, which is what you want when the
+  # queue has the weekend to drain.
+  if [ "$MAX_PARALLEL" -le 0 ] 2>/dev/null; then
+    JOB_NAME="${NAME}[1-${N_IDS}]"
+  else
+    JOB_NAME="${NAME}[1-${N_IDS}]%${MAX_PARALLEL}"
+  fi
   LOG_SUFFIX="%J.%I"
 fi
 BSUB=(bsub -J "$JOB_NAME" -q "$QUEUE" -n "$CORES"
@@ -331,7 +340,11 @@ echo "=== submit command ==="
 printf '  '; printf '%q ' "${BSUB[@]}"; echo
 echo
 if [ "$USE_ARRAY" = "1" ]; then
-  echo "array: $N_IDS task(s), at most $MAX_PARALLEL at once (--max-parallel)"
+  if [ "$MAX_PARALLEL" -le 0 ] 2>/dev/null; then
+    echo "array: $N_IDS task(s), unthrottled - LSF runs as many as it can"
+  else
+    echo "array: $N_IDS task(s), at most $MAX_PARALLEL at once (--max-parallel)"
+  fi
   echo "       one accession each, from $LIST_SNAPSHOT"
   echo "       --one-job instead runs them all in a single serial job"
 fi

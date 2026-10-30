@@ -37,6 +37,7 @@ DEFAULT_TIMEOUT = 300
 #: Named protein sets. The key is what a user passes to ``--set``.
 QUERIES: dict[str, str] = {
     "human_membrane": "(keyword:KW-0812) AND (organism_id:9606) AND (reviewed:true)",
+    "yeast_membrane": "(keyword:KW-0812) AND (organism_id:559292) AND (reviewed:true)",
     "human_multipass": (
         "(keyword:KW-0812) AND (keyword:KW-0472) AND (organism_id:9606) AND (reviewed:true)"
     ),
@@ -84,6 +85,134 @@ class ManifestInfo:
             f"{self.name}: {self.n_proteins:,} proteins, {self.n_residues:,} residues, "
             f"{self.n_substitutions:,} possible substitutions ({self.retrieved})"
         )
+
+
+#: Accessions per UniProt request when building a manifest from a list.
+#: 150 is refused outright; 100 works. The batch is verified either way,
+#: because a request can come back 200 with only part of what was asked
+#: for, and a manifest quietly missing proteins is worse than a slow one.
+ACCESSION_BATCH = 100
+
+
+def read_accession_list(path: Path) -> list[str]:
+    """Read a file of accessions, one per line, ignoring blanks and comments."""
+    accessions: list[str] = []
+    seen: set[str] = set()
+    for raw in Path(path).read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Tolerate a TSV or a FASTA-style header, taking the first field.
+        accession = line.split()[0].split("|")[1] if line.startswith(">sp|") else line.split()[0]
+        if accession not in seen:
+            seen.add(accession)
+            accessions.append(accession)
+    if not accessions:
+        raise ProteomeError(f"no accessions found in {path}")
+    return accessions
+
+
+def fetch_manifest_for(
+    accessions: list[str], name: str, *, paths: Paths = PATHS, force: bool = False,
+    timeout: int = DEFAULT_TIMEOUT, min_length: int = 1, max_length: int | None = None,
+) -> tuple[pd.DataFrame, ManifestInfo]:
+    """Build a manifest for an explicit set of accessions.
+
+    The same fields as a query-derived manifest, so everything downstream
+    behaves identically. Accessions UniProt does not return are reported
+    rather than silently dropped: an obsolete or mistyped one would
+    otherwise shrink the set without saying so.
+    """
+    directory = paths.outputs / "proteome" / name
+    manifest_path = directory / "manifest.tsv"
+    if manifest_path.exists() and not force:
+        frame = pd.read_csv(manifest_path, sep="\t")
+        log.info("reusing the manifest at %s (%d proteins); --force to rebuild",
+                 manifest_path, len(frame))
+        return frame, _info_from_frame(name, f"{len(accessions)} accessions",
+                                       frame, manifest_path, "cached")
+
+    rows: list[dict] = []
+    found: set[str] = set()
+    for start in range(0, len(accessions), ACCESSION_BATCH):
+        batch = accessions[start : start + ACCESSION_BATCH]
+        log.info("fetching %d-%d of %d accessions",
+                 start + 1, start + len(batch), len(accessions))
+        for row in _fetch_accession_batch(batch, timeout=timeout):
+            rows.append(row)
+            found.add(row["uniprot_id"])
+
+        # A request can answer 200 with only part of the batch. Ask for
+        # anything that did not come back one at a time, where a failure is
+        # unambiguous.
+        stragglers = [a for a in batch if a not in found]
+        if stragglers:
+            log.info("  %d of %d did not come back; retrying individually",
+                     len(stragglers), len(batch))
+            for accession in stragglers:
+                for row in _fetch_accession_batch([accession], timeout=timeout):
+                    rows.append(row)
+                    found.add(row["uniprot_id"])
+
+    missing = [a for a in accessions if a not in found]
+    if missing:
+        log.warning(
+            "%d of %d accessions were not returned by UniProt and are not in the "
+            "manifest (obsolete, demerged or mistyped): %s",
+            len(missing), len(accessions), ", ".join(missing[:8]),
+        )
+
+    frame = pd.DataFrame(rows, columns=MANIFEST_COLUMNS)
+    before = len(frame)
+    frame = frame.loc[frame["length"] >= min_length]
+    if max_length is not None:
+        frame = frame.loc[frame["length"] <= max_length]
+    if len(frame) != before:
+        log.info("length filter kept %d of %d proteins", len(frame), before)
+
+    frame = frame.sort_values("uniprot_id").reset_index(drop=True)
+    directory.mkdir(parents=True, exist_ok=True)
+    tmp = manifest_path.with_suffix(".tsv.tmp")
+    frame.to_csv(tmp, sep="\t", index=False)
+    tmp.replace(manifest_path)
+
+    info = _info_from_frame(
+        name, f"{len(accessions)} accessions from a list", frame, manifest_path,
+        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    )
+    write_json(directory / "manifest.json", {
+        "name": info.name, "query": info.query, "retrieved": info.retrieved,
+        "n_proteins": info.n_proteins, "n_residues": info.n_residues,
+        "n_substitutions": info.n_substitutions,
+        "n_requested": len(accessions), "not_found": missing,
+        "min_length": min_length, "max_length": max_length, "fields": _FIELDS,
+    })
+    log.info("wrote %s", info.summary())
+    return frame, info
+
+
+def _fetch_accession_batch(batch: list[str], *, timeout: int) -> list[dict]:
+    """One UniProt request for a batch of accessions, parsed into rows."""
+    query = " OR ".join(f"accession:{a}" for a in batch)
+    response = requests.get(
+        UNIPROT_STREAM,
+        params={"query": query, "fields": _FIELDS, "format": "tsv"},
+        headers=HTTP_HEADERS, timeout=timeout,
+    )
+    if response.status_code != 200:
+        log.warning("UniProt answered %d for a batch of %d accessions",
+                    response.status_code, len(batch))
+        return []
+    lines = response.text.splitlines()
+    if len(lines) < 2:
+        return []
+    header = lines[0].split("\t")
+    out = []
+    for line in lines[1:]:
+        row = _parse_row(dict(zip(header, line.split("\t"), strict=False)))
+        if row["uniprot_id"]:
+            out.append(row)
+    return out
 
 
 def resolve_query(name_or_query: str) -> tuple[str, str]:

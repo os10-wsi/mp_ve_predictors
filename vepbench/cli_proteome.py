@@ -37,17 +37,30 @@ def _directory(name: str):
 
 
 def command_define(args: argparse.Namespace) -> int:
-    from vepbench.proteome import count_matches, fetch_manifest, resolve_query
+    from vepbench.proteome import (
+        count_matches,
+        fetch_manifest,
+        fetch_manifest_for,
+        read_accession_list,
+        resolve_query,
+    )
 
-    if args.count_only:
+    if args.from_list:
+        accessions = read_accession_list(Path(args.from_list))
+        print(f"{len(accessions):,} accessions in {args.from_list}")
+        frame, info = fetch_manifest_for(
+            accessions, args.protein_set, paths=PATHS, force=args.force,
+            min_length=args.min_length, max_length=args.max_length,
+        )
+    elif args.count_only:
         _, query = resolve_query(args.protein_set)
         print(f"{count_matches(query):,} entries match {query}")
         return 0
-
-    frame, info = fetch_manifest(
-        args.protein_set, paths=PATHS, force=args.force,
-        min_length=args.min_length, max_length=args.max_length,
-    )
+    else:
+        frame, info = fetch_manifest(
+            args.protein_set, paths=PATHS, force=args.force,
+            min_length=args.min_length, max_length=args.max_length,
+        )
     print(info.summary())
     print(f"manifest: {info.path}")
     if len(frame):
@@ -503,6 +516,9 @@ def add_parser(sub, common) -> None:
                         help="refetch even though a manifest exists")
     define.add_argument("--count-only", action="store_true",
                         help="report how many entries match, and download nothing")
+    define.add_argument("--from-list",
+                        help="a file of UniProt accessions, one per line, to use "
+                             "instead of a query. --set then names the manifest.")
     define.add_argument("--min-length", type=int, default=1)
     define.add_argument("--max-length", type=int,
                         help="skip proteins longer than this; the largest few "
@@ -580,6 +596,7 @@ def add_parser(sub, common) -> None:
     everything.add_argument("--max-length", type=int)
     everything.add_argument("--count-only", action="store_true",
                             help=argparse.SUPPRESS)
+    everything.add_argument("--from-list")
     everything.add_argument("--only", nargs="*",
                             choices=["uniprot", "clinvar", "alphamissense"])
     everything.add_argument("--clinvar-file")

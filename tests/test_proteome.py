@@ -132,3 +132,124 @@ class TestTables:
     def test_an_empty_dataset_reads_as_an_empty_frame(self, tmp_path):
         (tmp_path / "dataset").mkdir()
         assert tables.read_dataset(tmp_path / "dataset").empty
+
+
+class TestAccessionLists:
+    """Building a manifest from a file of accessions rather than a query."""
+
+    def test_blank_lines_and_comments_are_ignored(self, tmp_path):
+        from vepbench.proteome import read_accession_list
+
+        path = tmp_path / "ids.txt"
+        path.write_text("P00001\n\n# a note\n  P00002  \nP00003\n")
+        assert read_accession_list(path) == ["P00001", "P00002", "P00003"]
+
+    def test_duplicates_are_collapsed_keeping_order(self, tmp_path):
+        from vepbench.proteome import read_accession_list
+
+        path = tmp_path / "ids.txt"
+        path.write_text("P00002\nP00001\nP00002\n")
+        assert read_accession_list(path) == ["P00002", "P00001"]
+
+    def test_a_tsv_or_fasta_header_yields_the_accession(self, tmp_path):
+        from vepbench.proteome import read_accession_list
+
+        path = tmp_path / "ids.txt"
+        path.write_text(">sp|P00001|NAME_YEAST Some protein\nP00002\textra\tcolumns\n")
+        assert read_accession_list(path) == ["P00001", "P00002"]
+
+    def test_an_empty_file_is_refused_by_name(self, tmp_path):
+        from vepbench.proteome import ProteomeError, read_accession_list
+
+        path = tmp_path / "ids.txt"
+        path.write_text("\n# nothing but a comment\n")
+        with pytest.raises(ProteomeError, match="no accessions"):
+            read_accession_list(path)
+
+    def test_yeast_is_a_named_set(self):
+        from vepbench.proteome import QUERIES
+
+        assert "559292" in QUERIES["yeast_membrane"]
+
+
+class TestBatchVerification:
+    """A batch can answer 200 with only part of what was asked for."""
+
+    def test_accessions_missing_from_a_batch_are_retried_individually(
+        self, paths, monkeypatch
+    ):
+        # The real failure seen against UniProt: a batch of 50 came back 200
+        # with 2 rows. Trusting that would silently shrink the manifest.
+        from vepbench import proteome
+
+        monkeypatch.setattr(proteome, "ACCESSION_BATCH", 100)
+        calls: list[list[str]] = []
+
+        def flaky(batch, *, timeout):
+            calls.append(list(batch))
+            if len(batch) > 1:
+                return [_row("P00001")]          # the batch under-delivers
+            return [_row(batch[0])]              # individual requests are honest
+
+        monkeypatch.setattr(proteome, "_fetch_accession_batch", flaky)
+        frame, _ = proteome.fetch_manifest_for(
+            ["P00001", "P00002", "P00003"], "retryset", paths=paths,
+        )
+        assert sorted(frame["uniprot_id"]) == ["P00001", "P00002", "P00003"]
+        assert calls[1:] == [["P00002"], ["P00003"]]
+
+    def test_an_accession_nobody_returns_is_recorded_not_dropped_quietly(
+        self, paths, monkeypatch
+    ):
+        import json
+
+        from vepbench import proteome
+
+        monkeypatch.setattr(
+            proteome, "_fetch_accession_batch",
+            lambda batch, *, timeout: [_row(a) for a in batch if a != "GONE"],
+        )
+        frame, _ = proteome.fetch_manifest_for(["P00001", "GONE"], "missingset",
+                                               paths=paths)
+        assert frame["uniprot_id"].tolist() == ["P00001"]
+        recorded = json.loads(
+            (paths.outputs / "proteome/missingset/manifest.json").read_text())
+        assert recorded["not_found"] == ["GONE"]
+        assert recorded["n_requested"] == 2
+
+    def test_an_existing_manifest_is_reused_without_refetching(self, paths, monkeypatch):
+        from vepbench import proteome
+
+        monkeypatch.setattr(
+            proteome, "_fetch_accession_batch",
+            lambda batch, *, timeout: [_row(a) for a in batch])
+        proteome.fetch_manifest_for(["P00001"], "cachedset", paths=paths)
+
+        monkeypatch.setattr(proteome, "_fetch_accession_batch", _must_not_fetch)
+        frame, info = proteome.fetch_manifest_for(["P00001"], "cachedset", paths=paths)
+        assert len(frame) == 1
+        assert info.retrieved == "cached"
+
+    def test_the_length_filter_applies_to_a_list_too(self, paths, monkeypatch):
+        from vepbench import proteome
+
+        monkeypatch.setattr(
+            proteome, "_fetch_accession_batch",
+            lambda batch, *, timeout: [_row("P00001", length=100),
+                                       _row("P00002", length=9000)])
+        frame, _ = proteome.fetch_manifest_for(["P00001", "P00002"], "lenset",
+                                               paths=paths, max_length=1499)
+        assert frame["uniprot_id"].tolist() == ["P00001"]
+
+
+def _row(accession: str, length: int = 400) -> dict:
+    return {
+        "uniprot_id": accession, "entry_name": f"{accession}_YEAST",
+        "gene": accession, "protein_name": "Test", "length": length,
+        "n_tm_segments": 2, "tm_residues": 40, "n_intramem_segments": 0,
+        "tm_evidence": "predicted", "membrane_topology": "multipass",
+    }
+
+
+def _must_not_fetch(batch, *, timeout):
+    raise AssertionError("a cached manifest must not be refetched")

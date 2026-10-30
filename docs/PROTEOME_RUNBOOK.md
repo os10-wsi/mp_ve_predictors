@@ -327,6 +327,62 @@ you keep:
 python3 -m vepbench proteome analyse --set human_membrane --n-boot 200
 ```
 
+## Which interpreter is which
+
+There are two layers, and only the first is something you "activate".
+
+**The orchestrator** runs `vepbench` itself. It needs only numpy, pandas and
+requests. On the farm it is the conda environment vepbench was installed
+into:
+
+```bash
+conda activate /software/conda/users/os10/mpdms
+# or skip activation entirely and use the absolute path:
+/software/conda/users/os10/mpdms/bin/python3 -m vepbench status
+```
+
+If `conda activate` is not set up in your shell, the absolute path is the
+reliable form, and it is what the error messages in the job logs print.
+`scripts/submit_job.sh` finds an interpreter by trying `$VEPBENCH_PYTHON`,
+then `$VIRTUAL_ENV/bin/python`, then `python3` and `python`, taking the first
+that can `import vepbench.cli`. Set `VEPBENCH_PYTHON` to pin it:
+
+```bash
+export VEPBENCH_PYTHON=/software/conda/users/os10/mpdms/bin/python3
+```
+
+**The predictor environments** are never activated. Each lives at
+`envs/<name>/.venv` and vepbench invokes it by absolute path over a
+subprocess with a JSON job file, which is what keeps mutually incompatible
+pins of torch and transformers apart. To debug one, run its interpreter
+directly:
+
+```bash
+$ROOT/envs/proteinmpnn/.venv/bin/python -c \
+  'import torch; print(torch.__version__, torch.cuda.is_available())'
+```
+
+`vepbench status` prints both paths at the top, so you never have to
+remember them.
+
+### Reproducing a predictor failure
+
+The job log contains the exact command that failed. Copy it and run it as
+it stands — it is a plain subprocess call with no wrapper:
+
+```bash
+$ROOT/envs/stability_dg/.venv/bin/python -s \
+  $ROOT/third_party/absolute-stability-predictor/ESM3dG.py \
+  --pdb $ROOT/data/cache/structures/AF-A6NCQ9-F1-model_v6.pdb --chain A \
+  --mutations $ROOT/data/cache/work/A6NCQ9/esm3_dg/variants.csv \
+  --model esm3 --ensemble 3 --output /tmp/out.csv
+```
+
+The `data/cache/work/<ACC>/<predictor>/` directory holds the inputs that
+were handed to it, so the command is reproducible after the run has moved
+on. Note `-s`, not `-I`: these upstream scripts import their own siblings,
+and `-I` removes the script's directory from `sys.path`.
+
 ## Watching the run
 
 ```bash

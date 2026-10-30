@@ -384,6 +384,13 @@ so a change is deliberate rather than accidental.
 
 ## Isolated environments
 
+`vepbench status` prints the orchestrator interpreter and the predictor
+environment paths at the top of its output. The orchestrator is the one you
+activate; the predictor environments are invoked by absolute path and are
+never activated. See
+[`docs/PROTEOME_RUNBOOK.md`](docs/PROTEOME_RUNBOOK.md#which-interpreter-is-which)
+for how to reproduce a failing predictor by hand.
+
 These tools pin incompatible versions of torch, numpy and transformers, and
 one still targets Python 2.7, so they cannot share an interpreter. Each gets
 its own environment under `envs/<name>/.venv`, driven over subprocess with a

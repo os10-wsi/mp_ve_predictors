@@ -6,6 +6,8 @@ import argparse
 import json
 import logging
 import os
+import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import pandas as pd
@@ -498,16 +500,37 @@ def command_status(args: argparse.Namespace) -> int:
         "incomplete": "INCOMPLETE - install did not finish",
         "stale": "stale - requirements changed since it was built",
     }
+    # Which interpreter is which is the first thing anyone needs when a
+    # predictor misbehaves, and it is the one thing the docs never said.
+    print(f"orchestrator : {sys.executable}")
+    try:
+        release = version("vepbench")
+    except PackageNotFoundError:        # running from a checkout, not installed
+        release = "from source"
+    print(f"               vepbench {release}, root {PATHS.root}")
+    print(f"predictors   : {PATHS.envs}/<name>/.venv/bin/python")
+    print()
+
     print(f"{'environment':16s} {'state':44s} predictors")
     print("-" * 100)
     needs_attention = []
+    installed = []
     for name, spec in sorted(ENVIRONMENTS.items()):
         members = sorted(n for n, p in REGISTRY.items() if p.spec.env == name)
         state = spec.state(PATHS)
         if state in ("incomplete", "stale"):
             needs_attention.append(name)
+        if state == "ok":
+            installed.append(name)
         print(f"{name:16s} {explanation[state]:44s} "
               f"{', '.join(members) if members else '-'}")
+
+    if installed:
+        example = installed[0]
+        print("\nTo debug a predictor, run its own interpreter directly -- there is "
+              "nothing to activate:")
+        print(f"  {PATHS.envs / example / '.venv/bin/python'} -c 'import torch; "
+              f"print(torch.__version__, torch.cuda.is_available())'")
     if needs_attention:
         print(f"\nRe-run: {VEPBENCH} install-env "
               f"{' '.join(needs_attention) if len(needs_attention) == 1 else '<name>'}")

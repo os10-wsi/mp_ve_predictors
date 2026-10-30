@@ -112,7 +112,7 @@ You can always run them separately afterwards.
 
 This is the long single-threaded stage: ~5,243 UniProt entries fetched
 serially, a 1.2 GB AlphaMissense download sliced into one file per
-accession, and the ClinVar release parsed and mapped. **Budget 1–3 hours**,
+accession, and the ClinVar release (~450 MB) parsed and mapped. **Budget 1–3 hours**,
 and do not run it on a login node.
 
 ```bash

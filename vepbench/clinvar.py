@@ -188,8 +188,8 @@ class MappingReport:
 def download(destination: Path, *, url: str = CLINVAR_URL, force: bool = False) -> Path:
     """Fetch variant_summary.txt.gz, skipping the download if it is already here.
 
-    The file is around 100 MB compressed and changes weekly, so it is cached
-    and only refetched on request. Which release was used is part of the
+    The file is a few hundred megabytes compressed and grows with each
+    weekly release, so it is cached and only refetched on request. Which release was used is part of the
     result, so the path keeps its download date in ``.source.txt``.
     """
     destination = Path(destination)
@@ -197,7 +197,7 @@ def download(destination: Path, *, url: str = CLINVAR_URL, force: bool = False) 
         log.info("using the cached ClinVar release at %s", destination)
         return destination
     destination.parent.mkdir(parents=True, exist_ok=True)
-    log.info("downloading ClinVar from %s (about 100 MB)", url)
+    log.info("downloading ClinVar from %s (~450 MB compressed)", url)
     tmp = destination.with_name(destination.name + ".tmp")
     try:
         with urllib.request.urlopen(url, timeout=DEFAULT_TIMEOUT) as response, \

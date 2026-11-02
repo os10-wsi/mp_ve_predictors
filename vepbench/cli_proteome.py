@@ -449,9 +449,19 @@ def command_progress(args: argparse.Namespace) -> int:
               f"= {sum(totals.values()) / 60:.1f} min")
 
     if failures:
-        print("\nfailing on every protein they ran against:")
+        # Reporting a count alone cannot tell a predictor that is broken
+        # everywhere from one that fails intermittently, and those call for
+        # opposite responses: fix the install, or find what the failing
+        # proteins have in common.
+        print("\nfailures:")
+        width = max(len(name) for name in failures)
         for name, count in sorted(failures.items(), key=lambda kv: -kv[1]):
-            print(f"  {name}: {count:,}")
+            ok = len(seconds.get(name, []))
+            attempts = ok + count
+            share = 100 * count / attempts if attempts else 100.0
+            verdict = "every attempt" if ok == 0 else "intermittent"
+            print(f"  {name:<{width}}  {count:>5,} of {attempts:>5,} "
+                  f"({share:5.1f}%)  {verdict}")
 
     # Throughput from the completions themselves. The earliest and latest
     # finish bracket a window during which `concurrency` tasks were running,

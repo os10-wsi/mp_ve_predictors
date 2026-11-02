@@ -395,10 +395,23 @@ class TestProgress:
         assert "expensive" in lines[0]        # most costly first
         assert "505.0s" in out
 
-    def test_a_predictor_failing_everywhere_is_named(self, paths, capsys):
+    def test_a_predictor_failing_everywhere_is_called_that(self, paths, capsys):
         self._setup(paths, ["P1", "P2"], ["P1", "P2"], failed=("prosst",))
         main(["proteome", "progress", "--set", "progset"])
-        assert "prosst: 2" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "prosst" in out
+        assert "2 of     2 (100.0%)  every attempt" in out
+
+    def test_an_intermittent_failure_is_not_reported_as_universal(self, paths,
+                                                                  capsys):
+        # A predictor with successes AND failures needs a different response
+        # from one that is simply broken, so the two must not read alike.
+        self._setup(paths, ["P1", "P2"], ["P1"], seconds={"ankh": 10.0},
+                    failed=("ankh",))
+        main(["proteome", "progress", "--set", "progset"])
+        out = capsys.readouterr().out
+        assert "intermittent" in out
+        assert "every attempt" not in out
 
     def test_nothing_finished_yet_projects_nothing(self, paths, capsys):
         self._setup(paths, ["P1", "P2"], [])

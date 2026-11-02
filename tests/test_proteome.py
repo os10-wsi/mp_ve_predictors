@@ -253,3 +253,60 @@ def _row(accession: str, length: int = 400) -> dict:
 
 def _must_not_fetch(batch, *, timeout):
     raise AssertionError("a cached manifest must not be refetched")
+
+
+class TestMissingManifestDiagnosis:
+    """Forgetting VEPBENCH_OUTPUTS is the easy mistake with several sets.
+
+    The default outputs tree is a real directory, so the failure arrives as
+    a missing file rather than a missing setting, and the error points at a
+    path the user never chose.
+    """
+
+    def _elsewhere(self, paths, name="human_membrane"):
+        other = paths.root / "outputs_proteome" / "proteome" / name
+        other.mkdir(parents=True)
+        (other / "manifest.tsv").write_text("uniprot_id\tlength\nP1\t100\n")
+        return other / "manifest.tsv"
+
+    def test_the_error_says_the_variable_is_not_set(self, paths, monkeypatch):
+        from vepbench.proteome import ProteomeError, load_manifest
+
+        monkeypatch.delenv("VEPBENCH_OUTPUTS", raising=False)
+        with pytest.raises(ProteomeError, match="NOT SET"):
+            load_manifest("human_membrane", paths=paths)
+
+    def test_a_manifest_in_a_sibling_tree_is_pointed_at(self, paths, monkeypatch):
+        from vepbench.proteome import ProteomeError, load_manifest
+
+        self._elsewhere(paths)
+        monkeypatch.delenv("VEPBENCH_OUTPUTS", raising=False)
+        with pytest.raises(ProteomeError) as caught:
+            load_manifest("human_membrane", paths=paths)
+        message = str(caught.value)
+        assert "a manifest for this set exists at" in message
+        assert "export VEPBENCH_OUTPUTS=" in message
+        assert str(paths.root / "outputs_proteome") in message
+
+    def test_with_nothing_found_it_names_the_command_to_run(self, paths, monkeypatch):
+        from vepbench.proteome import ProteomeError, load_manifest
+
+        monkeypatch.delenv("VEPBENCH_OUTPUTS", raising=False)
+        with pytest.raises(ProteomeError, match="proteome define --set human_membrane"):
+            load_manifest("human_membrane", paths=paths)
+
+    def test_a_set_with_a_different_name_is_not_offered(self, paths, monkeypatch):
+        from vepbench.proteome import ProteomeError, load_manifest
+
+        self._elsewhere(paths, "yeast_membrane")
+        monkeypatch.delenv("VEPBENCH_OUTPUTS", raising=False)
+        with pytest.raises(ProteomeError) as caught:
+            load_manifest("human_membrane", paths=paths)
+        assert "exists at" not in str(caught.value)
+
+    def test_find_manifests_does_not_report_the_same_tree_twice(self, paths, monkeypatch):
+        from vepbench.proteome import find_manifests
+
+        monkeypatch.setenv("VEPBENCH_OUTPUTS", str(paths.root / "outputs_proteome"))
+        self._elsewhere(paths)
+        assert len(find_manifests("human_membrane", paths=paths)) == 1

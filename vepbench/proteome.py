@@ -17,6 +17,7 @@ per-residue TRANSMEM features, which are the same annotations
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -349,13 +350,43 @@ def _info_from_frame(
     )
 
 
+def find_manifests(name: str, *, paths: Paths = PATHS) -> list[Path]:
+    """Manifests for this set anywhere obvious under the checkout.
+
+    Running several protein sets means several VEPBENCH_OUTPUTS trees, and
+    forgetting to set it is the easy mistake: the default tree is a real
+    directory, so the failure is a missing file rather than a missing
+    setting, and the error points at a path the user never chose.
+    """
+    seen: set[Path] = set()
+    found: list[Path] = []
+    for parent in (paths.outputs, *sorted(paths.root.glob("*output*"))):
+        candidate = parent / "proteome" / name / "manifest.tsv"
+        resolved = candidate.resolve() if candidate.exists() else candidate
+        if candidate.exists() and resolved not in seen:
+            seen.add(resolved)
+            found.append(candidate)
+    return found
+
+
 def load_manifest(name: str = "human_membrane", *, paths: Paths = PATHS) -> pd.DataFrame:
     """Read a manifest written earlier, with a useful error when it is absent."""
     path = paths.outputs / "proteome" / name / "manifest.tsv"
     if not path.exists():
-        raise ProteomeError(
-            f"no manifest for {name!r} at {path}; run `vepbench proteome define --set {name}`"
-        )
+        configured = os.environ.get("VEPBENCH_OUTPUTS")
+        lines = [
+            f"no manifest for {name!r} at {path}",
+            f"  outputs tree: {paths.outputs}",
+            f"  VEPBENCH_OUTPUTS is {'set to that' if configured else 'NOT SET, so that is the default'}",
+        ]
+        elsewhere = [p for p in find_manifests(name, paths=paths) if p != path]
+        if elsewhere:
+            lines.append("  but a manifest for this set exists at:")
+            lines += [f"    {p}" for p in elsewhere]
+            lines.append(f"  export VEPBENCH_OUTPUTS={elsewhere[0].parent.parent.parent}")
+        else:
+            lines.append(f"  run `vepbench proteome define --set {name}`")
+        raise ProteomeError("\n".join(lines))
     return pd.read_csv(path, sep="\t")
 
 

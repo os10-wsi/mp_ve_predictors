@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import subprocess
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 from vepbench.config import PATHS
@@ -146,6 +148,20 @@ def _fetch_uniprot(manifest, *, offline: bool) -> list[str]:
             len(failed), UNIPROT_ATTEMPTS, record,
         )
     return []
+
+
+#: Noise that differs per protein and would split one cause into many.
+_VARIABLE = re.compile(r"/\S+|\b[A-NR-Z][0-9][A-Z0-9]{3}[0-9]\b|\d+")
+
+
+def _reason(message: str) -> str:
+    """Reduce a failure message to the cause, so identical ones group.
+
+    Paths, accessions and numbers differ on every protein; leaving them in
+    turns one recurring failure into a thousand unique strings.
+    """
+    text = message.rsplit(" | ", maxsplit=1)[-1].strip()
+    return (_VARIABLE.sub("#", text)[:110] or "(no message recorded)")
 
 
 def _directory_for_failures() -> Path:
@@ -417,6 +433,7 @@ def command_progress(args: argparse.Namespace) -> int:
     expected = manifest["uniprot_id"].tolist()
 
     finished: list[float] = []
+    reasons: dict[str, Counter] = {}
     seconds: dict[str, list[float]] = {}
     failures: dict[str, int] = {}
     done = 0
@@ -431,6 +448,8 @@ def command_progress(args: argparse.Namespace) -> int:
             name = entry.get("predictor", "?")
             if entry.get("status") == "failed":
                 failures[name] = failures.get(name, 0) + 1
+                reasons.setdefault(name, Counter())[
+                    _reason(entry.get("message") or "")] += 1
             value = entry.get("seconds")
             if value and entry.get("status") == "ok":
                 seconds.setdefault(name, []).append(float(value))
@@ -462,6 +481,10 @@ def command_progress(args: argparse.Namespace) -> int:
             verdict = "every attempt" if ok == 0 else "intermittent"
             print(f"  {name:<{width}}  {count:>5,} of {attempts:>5,} "
                   f"({share:5.1f}%)  {verdict}")
+            # The commonest message is nearly always the whole story, and
+            # finding it otherwise means grepping thousands of log files.
+            for message, seen in reasons.get(name, Counter()).most_common(2):
+                print(f"  {'':<{width}}  {seen:>5,}  {message}")
 
     # Throughput from the completions themselves. The earliest and latest
     # finish bracket a window during which `concurrency` tasks were running,

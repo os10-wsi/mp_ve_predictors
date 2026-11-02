@@ -340,7 +340,8 @@ class TestProgress:
     """A multi-day run needs its remaining time measured, not guessed."""
 
     def _setup(self, paths, accessions, done, *, lengths=None, spacing=3600.0,
-               seconds=None, failed=()):
+               seconds=None, failed=(), messages=None):
+        messages = messages or {}
         import time
 
         directory = paths.outputs / "proteome" / "progset"
@@ -356,7 +357,8 @@ class TestProgress:
             write_predictions(paths, accession, ("alpha", "beta"), seed=index)
             entries = [{"predictor": n, "status": "ok", "seconds": s}
                        for n, s in (seconds or {"alpha": 60.0, "beta": 120.0}).items()]
-            entries += [{"predictor": n, "status": "failed"} for n in failed]
+            entries += [{"predictor": n, "status": "failed",
+                         "message": messages.get(n, "")} for n in failed]
             (paths.output_dir(accession) / "status.json").write_text(json.dumps({
                 "uniprot_id": accession, "generated": base + spacing * index,
                 "predictors": entries,
@@ -470,3 +472,48 @@ class TestSchedulerResources:
         out = capsys.readouterr().out
         assert "--mem" not in out
         assert "--cores" not in out
+
+
+class TestFailureReasons:
+    """A count says something broke; only the message says what."""
+
+    def test_the_commonest_reason_is_shown_beside_the_count(self, paths, capsys):
+        import json
+
+        directory = paths.outputs / "proteome" / "whyset"
+        directory.mkdir(parents=True)
+        pd.DataFrame({"uniprot_id": ["P1", "P2"], "gene": ["A", "B"],
+                      "length": [100, 100]}).to_csv(
+            directory / "manifest.tsv", sep="\t", index=False)
+        for accession, allocation in (("P1", "2.50"), ("P2", "1.25")):
+            write_predictions(paths, accession, ("esm2_3b",))
+            (paths.output_dir(accession) / "status.json").write_text(json.dumps({
+                "generated": 1.0,
+                "predictors": [{
+                    "predictor": "esm2_3b", "status": "failed",
+                    "message": f"runner exited 1: CUDA out of memory. Tried to "
+                               f"allocate {allocation} GiB on /lustre/{accession}",
+                }],
+            }))
+        main(["proteome", "progress", "--set", "whyset"])
+        out = capsys.readouterr().out
+        # Both proteins failed the same way; differing sizes and paths must
+        # not split one cause into two.
+        assert "CUDA out of memory" in out
+        assert out.count("CUDA out of memory") == 1
+        assert "2 of     2" in out
+
+    def test_a_failure_with_no_message_still_reports(self, paths, capsys):
+        import json
+
+        directory = paths.outputs / "proteome" / "quietset"
+        directory.mkdir(parents=True)
+        pd.DataFrame({"uniprot_id": ["P1"], "gene": ["A"], "length": [100]}).to_csv(
+            directory / "manifest.tsv", sep="\t", index=False)
+        write_predictions(paths, "P1", ("x",))
+        (paths.output_dir("P1") / "status.json").write_text(json.dumps({
+            "generated": 1.0,
+            "predictors": [{"predictor": "x", "status": "failed"}],
+        }))
+        main(["proteome", "progress", "--set", "quietset"])
+        assert "(no message recorded)" in capsys.readouterr().out

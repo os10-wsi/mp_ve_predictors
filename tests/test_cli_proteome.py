@@ -432,7 +432,7 @@ class TestProgress:
         main(["proteome", "progress", "--set", "progset"])
         text = capsys.readouterr().out
         assert "300.0s" in text
-        assert "prosst" in text.split("failing on every protein")[1]
+        assert "prosst" in text.split("\nfailures:")[1]
 
 
 class TestSchedulerResources:

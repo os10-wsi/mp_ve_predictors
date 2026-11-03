@@ -1,882 +1,280 @@
-"""Command line interface: run, merge, list, status, benchmark, install-env."""
+"""Command line: fetch the data, score the proteins, report the result.
+
+Three verbs do the work. ``fetch`` downloads the shared resources once.
+``score`` runs the predictors over a list of accessions and writes one
+table per protein. ``report`` turns those tables into the AUC tables and
+the ROC panels. Each is separately runnable and resumable, because a
+thousand proteins is not a thing you do in one sitting.
+
+``install-env`` and ``status`` remain for the three environments that hold
+a model.
+"""
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
-import os
 import sys
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import pandas as pd
 
 from vepbench import VEPBENCH
-from vepbench.config import PATHS, RunConfig
-from vepbench.features import ALL_FEATURES, DEFAULT_FEATURES
+from vepbench.config import PATHS
 
-log = logging.getLogger("vepbench")
+log = logging.getLogger(__name__)
 
 
 def _configure_logging(verbosity: int) -> None:
     level = logging.WARNING if verbosity < 0 else (
-        logging.INFO if verbosity == 0 else logging.DEBUG
-    )
+        logging.DEBUG if verbosity > 0 else logging.INFO)
     logging.basicConfig(level=level, format="%(levelname)-7s %(name)s: %(message)s")
 
 
-def _parse_domain(text: str | None) -> tuple[int, int] | None:
-    if not text:
-        return None
-    try:
-        start, end = text.replace(":", "-").split("-")
-        return int(start), int(end)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            f"--domain expects START-END, for example 32-52; got {text!r}"
-        ) from exc
-
-
-def _uniprot_ids(args: argparse.Namespace) -> list[str]:
-    ids: list[str] = list(args.uniprot or [])
+def read_accessions(args: argparse.Namespace) -> list[str]:
+    """Accessions from --uniprot, --uniprot-list, or both."""
+    accessions: list[str] = list(args.uniprot or [])
     if args.uniprot_list:
-        for raw_line in Path(args.uniprot_list).read_text().splitlines():
-            line = raw_line.strip()
-            if line and not line.startswith("#"):
-                ids.append(line.split()[0])
-    if not ids:
-        raise SystemExit("give at least one --uniprot, or a --uniprot-list file")
-    seen, ordered = set(), []
-    for identifier in ids:
-        if identifier not in seen:
-            seen.add(identifier)
-            ordered.append(identifier)
-    return ordered
+        path = Path(args.uniprot_list)
+        if not path.exists():
+            raise SystemExit(f"error: no such file: {path}")
+        for raw in path.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            accessions.append(line.split()[0])
+    if not accessions:
+        raise SystemExit("error: give --uniprot ACCESSION... or --uniprot-list FILE")
+    seen: set[str] = set()
+    return [a for a in accessions if not (a in seen or seen.add(a))]
 
 
-def command_run(args: argparse.Namespace) -> int:
-    from vepbench.runner import run_protein
-
-    sequence_override = None
-    if args.fasta:
-        from vepbench.uniprot import read_fasta
-        sequence_override = read_fasta(Path(args.fasta))
-    elif args.sequence:
-        sequence_override = args.sequence
-    if args.email:
-        os.environ["VEPBENCH_EMAIL"] = args.email
-
-    config = RunConfig(
-        predictors=args.predictors, include_wt=args.include_wt, force=args.force,
-        structure_override=Path(args.pdb) if args.pdb else None,
-        sequence_override=sequence_override,
-        msa_override=Path(args.msa) if args.msa else None,
-        domain=_parse_domain(args.domain), features=args.features,
-        msa_backend=args.msa_backend, msa_database=args.msa_database,
-        offline=args.offline, device=args.device, dtype=args.dtype,
-        batch_size=args.batch_size,
-    )
-
-    exit_code = 0
-    for uniprot_id in _uniprot_ids(args):
-        print(f"\n=== {uniprot_id} ===")
-        try:
-            result = run_protein(uniprot_id, config)
-        except Exception as exc:
-            log.error("%s failed entirely: %s", uniprot_id, exc)
-            if args.verbose > 0:
-                raise
-            exit_code = 1
-            continue
-        print(f"wrote {result.output_dir}/predictions_long.csv "
-              f"({len(result.long_frame)} rows)")
-        print(f"wrote {result.output_dir}/predictions_wide.csv "
-              f"({len(result.wide_frame)} variants)")
-        ok, unavailable, failed = result.succeeded, result.unavailable, result.failed
-        print(f"  succeeded ({len(ok)}): {', '.join(ok) if ok else 'none'}")
-        if unavailable:
-            print(f"  unavailable ({len(unavailable)}): {', '.join(unavailable)}")
-        if failed:
-            print(f"  failed ({len(failed)}): {', '.join(failed)}")
-            exit_code = 1
-        for caveat in result.metadata.get("caveats", []):
-            print(f"  note: {caveat}")
-    return exit_code
-
-
-def command_doctor(args: argparse.Namespace) -> int:
-    """Report whether everything needed for a run is actually in place."""
-    from vepbench.readiness import (
-        MISSING,
-        OK,
-        WARNING,
-        assess,
-        download_command,
-    )
+def command_score(args: argparse.Namespace) -> int:
+    from vepbench.runner import score_protein, write_protein
+    from vepbench.scores import ScoreError, resolve
 
     try:
-        result = assess(args.predictors, msa_backend=args.msa_backend,
-                        features=args.features, paths=PATHS)
-    except ValueError as exc:
-        print(f"ERROR: {exc}")
-        return 2
+        requested = resolve(args.scores)
+    except ScoreError as exc:
+        raise SystemExit(f"error: {exc}") from exc
 
-    if args.json:
-        # For scripts deciding whether a run is worth submitting. The exit
-        # code cannot carry that: "something is missing" and "nothing can
-        # run" are different answers and only the second should stop a job.
-        print(json.dumps({
-            "ready": result.ready,
-            "needs_download": result.needs_download,
-            "blocked": result.blocked,
-            "problems": [c.name for c in result.problems],
-            "warnings": [c.name for c in result.warnings],
-        }, indent=2))
-        return 0 if not result.problems else 1
-
-    groups = {OK: "ready", WARNING: "warnings", MISSING: "missing"}
-    for status in (MISSING, WARNING, OK):
-        selected = [c for c in result.checks if c.status == status]
-        if not selected or (status == OK and not args.verbose):
-            continue
-        print(f"\n--- {groups[status]} ---")
-        for check in selected:
-            print(f"  {check.symbol:8s} {check.name}: {check.detail}")
-            if check.fix:
-                print(f"           -> {check.fix}")
-
-    print(f"\n{len(result.ready)} predictor(s) ready to run")
-    if result.ready:
-        print("  " + ", ".join(result.ready))
-
-    if result.needs_download:
-        print(f"\n{len(result.needs_download)} installed but will download weights "
-              f"on first use (so they need a network, and will fail under --offline):")
-        commands = []
-        for name, repos in sorted(result.needs_download.items()):
-            print(f"  {name:28s} {', '.join(repos)}")
-            for repo in repos:
-                command = download_command(repo, PATHS)
-                if command not in commands:
-                    commands.append(command)
-        print("  fetch them ahead of time:")
-        for command in commands:
-            print(f"    {command}")
-
-    if result.blocked:
-        print(f"\n{len(result.blocked)} blocked:")
-        for name, reason in sorted(result.blocked.items()):
-            print(f"  {name:28s} {reason[:110]}")
-
-    if result.problems:
-        print(f"\n{len(result.problems)} thing(s) need attention before a full run.")
-        return 1
-    print("\nEverything requested is in place.")
-    return 0
-
-
-def _categories_to_clean(requested: list[str] | None) -> list[str]:
-    """Expand `all`, which never includes results or built environments.
-
-    Losing a finished run or an hour of installing to a tidy-up is not a
-    tidy-up, so both have to be asked for by name.
-    """
-    from vepbench.cleanup import CATEGORIES, DEFAULT_CATEGORIES
-
-    wanted = list(requested or DEFAULT_CATEGORIES)
-    if "all" in wanted:
-        wanted = [n for n in CATEGORIES if n not in ("results", "venvs")]
-    unknown = [n for n in wanted if n not in CATEGORIES]
-    if unknown:
-        raise KeyError(
-            f"unknown categor(y/ies): {', '.join(unknown)}. "
-            f"Try `{VEPBENCH} clean --list`."
-        )
-    return wanted
-
-
-def _environments_to_keep(
-    names: list[str] | None, profiles: list[str] | None
-) -> list[str]:
-    """Environment names spared from a venv cleanup, expanding profiles."""
-    from vepbench.envs import env_profiles
-
-    keep = list(names or [])
-    available = env_profiles()
-    for profile in profiles or []:
-        if profile not in available:
-            raise KeyError(
-                f"unknown profile {profile!r}. Known: {', '.join(available)}"
-            )
-        keep += available[profile]
-    return keep
-
-
-def _print_clean_categories() -> None:
-    from vepbench.cleanup import CATEGORIES, DEFAULT_CATEGORIES, PROTECTED, describe
-
-    print("categories (* = included by default):")
-    for name in CATEGORIES:
-        description, cost = describe(name)
-        mark = "*" if name in DEFAULT_CATEGORIES else " "
-        print(f"  {mark} {name:12s} {description}")
-        print(f"    {'':12s} costs to recreate: {cost}")
-    print(f"\nnever touched: {', '.join(PROTECTED)}")
-
-
-def command_clean(args: argparse.Namespace) -> int:
-    """Remove generated files, by category, after showing what and how much."""
-    from vepbench.cleanup import (
-        DEFAULT_CATEGORIES,
-        describe,
-        human,
-        remove,
-        survey,
-    )
-
-    if args.list:
-        _print_clean_categories()
-        return 0
-
-    try:
-        wanted = _categories_to_clean(args.what)
-        keep = _environments_to_keep(args.keep, args.keep_profile)
-    except KeyError as exc:
-        print(f"ERROR: {exc.args[0]}")
-        return 2
-    found = survey(wanted, paths=PATHS, older_than_days=args.older_than, keep=keep)
-    if keep and "venvs" in wanted:
-        print(f"keeping: {', '.join(sorted(set(keep)))}")
-    total = sum(f.nbytes for f in found)
-    count = sum(f.count for f in found)
-    if not count:
-        print("nothing to clean")
-        return 0
-
-    window = f" older than {args.older_than} day(s)" if args.older_than else ""
-    print(f"would remove{window}:")
-    for entry in found:
-        if not entry.count:
-            continue
-        description, cost = describe(entry.category)
-        print(f"  {entry.category:12s} {entry.count:4d} item(s)  "
-              f"{human(entry.nbytes):>9s}  {entry.inodes:>9,d} files  {description}")
-        if entry.category not in DEFAULT_CATEGORIES:
-            print(f"  {'':12s} costs to recreate: {cost}")
-    files = sum(f.inodes for f in found)
-    print(f"  {'total':12s} {count:4d} item(s)  {human(total):>9s}  {files:>9,d} files")
-
-    if args.dry_run:
-        print("\n--dry-run: nothing removed.")
-        return 0
-    if not args.yes:
-        try:
-            answer = input("\nremove these? [y/N] ").strip().lower()
-        except EOFError:
-            answer = ""
-        if answer not in ("y", "yes"):
-            print("nothing removed.")
-            return 0
-    removed = remove(found)
-    print(f"removed {removed} item(s), freeing {human(total)}")
-    return 0
-
-
-def command_prefetch(args: argparse.Namespace) -> int:
-    """Download and cache every input a later run will need.
-
-    Written for clusters, where the login node has network access and the
-    compute nodes do not. Run this where there is a network, then run the
-    predictions with ``--offline`` on the node.
-    """
-    from vepbench.msa import MSAError, build_msa
-    from vepbench.predictors import REGISTRY, resolve_names
-    from vepbench.structure import StructureError, load_structure
-    from vepbench.uniprot import choose_domain, fetch_uniprot
-
-    if args.email:
-        os.environ["VEPBENCH_EMAIL"] = args.email
-
-    names = resolve_names(args.predictors)
-    needed = {
-        requirement for name in names if name in REGISTRY
-        for requirement in REGISTRY[name].spec.requires
-    }
-    from vepbench.features import DEFAULT_FEATURES, inputs_for_features
-    needed |= inputs_for_features(args.features or list(DEFAULT_FEATURES))
-
-    want_structure = "structure" in needed
-    want_msa = "msa" in needed and args.msa_backend != "none"
-    print(f"caching inputs for {len(_uniprot_ids(args))} protein(s): sequence"
-          + (", structure" if want_structure else "")
-          + (f", alignment via {args.msa_backend}" if want_msa else ""))
+    accessions = read_accessions(args)
+    options: dict = {}
+    if any(s.name == "thermompnn" for s in requested):
+        options["thermompnn_index"] = _thermompnn_index(args)
+    if args.device or args.batch_size:
+        runtime = {}
+        if args.device:
+            runtime["device"] = args.device
+        if args.batch_size:
+            runtime["batch_size"] = args.batch_size
+        options["runtime"] = runtime
 
     failures = 0
-    for uniprot_id in _uniprot_ids(args):
-        print(f"\n=== {uniprot_id} ===")
+    for accession in accessions:
+        print(f"\n=== {accession} ===")
         try:
-            record = fetch_uniprot(uniprot_id, paths=PATHS, force=args.force)
-        except Exception as exc:  # noqa: BLE001
-            print(f"  sequence FAILED: {exc}")
+            result = score_protein(accession, requested, paths=PATHS,
+                                   force=args.force, offline=args.offline,
+                                   options=options)
+        except Exception as exc:  # noqa: BLE001 - one protein must not stop a list
+            log.error("%s failed: %s", accession, exc)
             failures += 1
             continue
-        print(f"  sequence  {record.length} residues, {record.entry_name}")
-
-        if "domain" in needed:
-            prefer = "transmembrane" if record.is_membrane_protein else "auto"
-            window, note = choose_domain(record, prefer=prefer, paths=PATHS)
-            print(f"  domain    {window[0]}-{window[1]} ({note})")
-
-        if want_structure:
-            try:
-                structure = load_structure(uniprot_id, record.sequence, paths=PATHS,
-                                           force=args.force)
-                print(f"  structure {structure.path.name}, coverage "
-                      f"{structure.coverage:.0%}")
-            except (StructureError, Exception) as exc:  # noqa: BLE001
-                print(f"  structure FAILED: {exc}")
-                failures += 1
-
-        if want_msa:
-            try:
-                msa = build_msa(uniprot_id, record.sequence, backend=args.msa_backend,
-                                paths=PATHS, force=args.force,
-                                database=args.msa_database,
-                                email=os.environ.get("VEPBENCH_EMAIL", ""))
-                flag = " (SHALLOW)" if msa.is_shallow else ""
-                print(f"  alignment {msa.n_sequences} sequences, "
-                      f"Neff {msa.n_effective:.0f}{flag}")
-            except (MSAError, Exception) as exc:  # noqa: BLE001
-                print(f"  alignment FAILED: {exc}")
-                failures += 1
-
-    print(f"\ncache is at {PATHS.cache}")
-    print("Runs can now use --offline, including on a node with no network.")
-    return 1 if failures else 0
+        path = write_protein(result, paths=PATHS)
+        print(f"  {result.summary()}")
+        print(f"  scored: {', '.join(result.scored) or 'nothing'}")
+        print(f"  wrote {path}")
+    if failures:
+        print(f"\n{failures} of {len(accessions)} proteins failed", file=sys.stderr)
+    return 1 if failures == len(accessions) else 0
 
 
-def command_merge(args: argparse.Namespace) -> int:
-    from vepbench.merge import load_table, merge_with_dms
-    from vepbench.uniprot import fetch_uniprot
-
-    dms = load_table(Path(args.dms))
-    wide_path = (Path(args.predictions) if args.predictions
-                 else PATHS.output_dir(args.uniprot) / "predictions_wide.csv")
-    if not wide_path.exists():
-        raise SystemExit(
-            f"no predictions at {wide_path}. Run `{VEPBENCH} run --uniprot "
-            f"{args.uniprot}` first, or pass --predictions."
-        )
-    wide = pd.read_csv(wide_path)
-    record = fetch_uniprot(args.uniprot, paths=PATHS, offline=args.offline)
-
-    merged, report = merge_with_dms(
-        dms, wide, record.sequence, variant_col=args.variant_col,
-        position_col=args.position_col, wt_col=args.wt_col, mut_col=args.mut_col,
-        uniprot_id=args.uniprot, keep_unmatched=not args.drop_unmatched,
+def _thermompnn_index(args: argparse.Namespace) -> dict:
+    from vepbench.thermompnn_table import (
+        ThermoMPNNTableError,
+        archive_path,
+        index_by_protein,
+        read_table,
     )
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    merged.to_csv(out, index=False)
-    print(f"wrote {out} ({len(merged)} rows)")
-    print(report.summary())
 
-    report_path = out.with_name(out.stem + ".merge_report.json")
-    report_path.write_text(json.dumps(report.as_dict(), indent=2))
-    print(f"wrote {report_path}")
-
-    if report.unmatched:
-        unmatched = out.with_name(out.stem + ".unmatched.csv")
-        merged.loc[merged["match_status"] != "matched"].to_csv(unmatched, index=False)
-        print(f"wrote {unmatched} ({report.unmatched} rows that did not match)")
-    return 0
+    path = Path(args.thermompnn_table) if args.thermompnn_table else archive_path(PATHS)
+    try:
+        return index_by_protein(read_table(path))
+    except ThermoMPNNTableError as exc:
+        log.warning("%s; ThermoMPNN will be computed for every protein", exc)
+        return {}
 
 
-def command_list(args: argparse.Namespace) -> int:
-    from vepbench.predictors import REGISTRY
+def command_report(args: argparse.Namespace) -> int:
+    from vepbench import report, roc
+    from vepbench.scores import resolve
 
-    if args.json:
-        print(json.dumps({n: p.spec.as_dict() for n, p in sorted(REGISTRY.items())},
-                         indent=2))
-        return 0
+    accessions = read_accessions(args)
+    predictors = [s.name for s in resolve(args.scores)]
+    out = Path(args.out) if args.out else PATHS.outputs / "report"
 
-    header = f"{'name':30s} {'category':16s} {'needs':22s} {'env':14s} {'VRAM':>6s} verified"
-    print(header)
-    print("-" * len(header))
-    for name, predictor in sorted(REGISTRY.items()):
-        spec = predictor.spec
-        if args.category and spec.category != args.category:
+    results: list[roc.RocResult] = []
+    labelled = skipped = 0
+    for accession in accessions:
+        path = PATHS.output_dir(accession) / "scores.tsv"
+        if not path.exists():
+            skipped += 1
             continue
-        needs = ",".join(sorted(spec.requires))
-        vram = f"{spec.approximate_vram_gb:.0f}G" if spec.approximate_vram_gb else "-"
-        flag = "yes" if spec.convention.verified else "NO - check"
-        print(f"{name:30s} {spec.category:16s} {needs:22s} "
-              f"{spec.env or '-':14s} {vram:>6s} {flag}")
-    print(f"\n{len(REGISTRY)} predictors. Groups accepted by --predictors: all, "
-          f"sequence_only, structure_based, msa_based, stability, no_msa.")
+        frame = pd.read_csv(path, sep="\t")
+        if "label" not in frame.columns or frame["label"].notna().sum() == 0:
+            continue
+        labelled += 1
+        columns = [f"{p}__damaging" for p in predictors if f"{p}__damaging" in frame]
+        renamed = frame.rename(columns={f"{p}__damaging": p for p in predictors})
+        results += roc.evaluate(
+            renamed, [c.removesuffix("__damaging") for c in columns],
+            uniprot_id=accession, min_per_class=args.min_per_class,
+        )
+
+    if not results:
+        print("error: no protein had enough labelled ClinVar variants to score. "
+              "Run `vepbench fetch clinvar` and check the proteins are human.",
+              file=sys.stderr)
+        return 1
+
+    written = report.write_tables(results, predictors, out)
+    summary = pd.read_csv(written["auc_summary"], sep="\t")
+    if not args.no_plots:
+        report.roc_pdf(results, predictors, out / "roc_curves.pdf",
+                       panels_per_page=args.panels_per_page)
+        report.ranking_plot(summary, out / "auc_ranking.png")
+
+    proteins = len({r.uniprot_id for r in results})
+    print(f"{proteins:,} proteins scored, {len(results):,} protein-predictor AUCs")
+    if skipped:
+        print(f"  {skipped:,} accessions had no scores.tsv and were skipped")
+    if labelled != proteins:
+        print(f"  {labelled - proteins:,} had labels but too few of either class")
+    print(f"\n{summary.to_string(index=False)}")
+    print(f"\ntables and plots: {out}")
     return 0
 
 
-def _status_across_proteins() -> int:
-    """Tally every predictor over every protein that has been run.
+def command_fetch(args: argparse.Namespace) -> int:
+    from vepbench.fetch import fetch_all
 
-    `doctor` reports what is installed, which is not the same as what works:
-    a predictor can pass every check and still fail at run time on an upstream
-    layout change. Once results exist they are the better answer, and the only
-    one that separates "never tried" from "tried and failed on all of them".
-    """
-    directories = sorted(
-        d for d in PATHS.outputs.glob("*")
-        if d.is_dir() and d.name != "jobs" and (d / "status.json").exists()
-    )
-    if not directories:
-        print(f"no runs yet under {PATHS.outputs}")
-        return 0
-
-    tally: dict[str, dict[str, int]] = {}
-    reasons: dict[str, str] = {}
-    for directory in directories:
-        payload = json.loads((directory / "status.json").read_text())
-        for entry in payload["predictors"]:
-            name = entry["predictor"]
-            counts = tally.setdefault(name, {})
-            counts[entry["status"]] = counts.get(entry["status"], 0) + 1
-            if entry.get("message") and name not in reasons:
-                reasons[name] = entry["message"]
-
-    total = len(directories)
-    print(f"{total} protein(s) with results under {PATHS.outputs}\n")
-    header = (f"{'predictor':28s} {'ok':>4s} {'cached':>7s} {'failed':>7s} "
-              f"{'unavail':>8s}  why")
-    print(header)
-    print("-" * len(header))
-
-    def produced(counts: dict[str, int]) -> int:
-        return counts.get("ok", 0) + counts.get("cached", 0)
-
-    # Complete first, then partial, then the ones that never produced a score.
-    for name, counts in sorted(
-        tally.items(),
-        key=lambda item: (0 if produced(item[1]) == total
-                          else 1 if produced(item[1]) else 2, item[0]),
-    ):
-        why = "" if produced(counts) == total else reasons.get(name, "")[:60]
-        print(f"{name:28s} {counts.get('ok', 0):4d} {counts.get('cached', 0):7d} "
-              f"{counts.get('failed', 0):7d} {counts.get('unavailable', 0):8d}  {why}")
-
-    complete = [n for n, c in tally.items() if produced(c) == total]
-    partial = [n for n, c in tally.items() if 0 < produced(c) < total]
-    print(f"\n{len(complete)} predictor(s) have a score for every protein")
-    if partial:
-        print(f"{len(partial)} have some but not all: {', '.join(sorted(partial))}")
-    return 0
+    return fetch_all(args, paths=PATHS)
 
 
 def command_status(args: argparse.Namespace) -> int:
+    from vepbench.clinvar_store import available
     from vepbench.envs import ENVIRONMENTS
-    from vepbench.predictors import REGISTRY
+    from vepbench.scores import SCORES
 
-    if args.all:
-        return _status_across_proteins()
-
-    if args.uniprot:
-        path = PATHS.output_dir(args.uniprot) / "status.json"
-        if not path.exists():
-            raise SystemExit(f"no status for {args.uniprot}; expected {path}")
-        payload = json.loads(path.read_text())
-        print(f"{args.uniprot}: " + ", ".join(f"{k}={v}"
-                                              for k, v in payload["counts"].items()))
-        for entry in payload["predictors"]:
-            line = f"  {entry['predictor']:30s} {entry['status']:12s}"
-            if entry.get("message"):
-                line += f" {entry['message'][:90]}"
-            print(line)
-        return 0
-
-    explanation = {
-        "ok": "ready",
-        "missing": "not installed",
-        "incomplete": "INCOMPLETE - install did not finish",
-        "stale": "stale - requirements changed since it was built",
-    }
-    # Which interpreter is which is the first thing anyone needs when a
-    # predictor misbehaves, and it is the one thing the docs never said.
     print(f"orchestrator : {sys.executable}")
-    try:
-        release = version("vepbench")
-    except PackageNotFoundError:        # running from a checkout, not installed
-        release = "from source"
-    print(f"               vepbench {release}, root {PATHS.root}")
-    print(f"predictors   : {PATHS.envs}/<name>/.venv/bin/python")
+    print(f"root         : {PATHS.root}")
+    print(f"outputs      : {PATHS.outputs}")
+    print(f"environments : {PATHS.envs}/<name>/.venv/bin/python")
     print()
-
-    print(f"{'environment':16s} {'state':44s} predictors")
-    print("-" * 100)
-    needs_attention = []
-    installed = []
-    for name, spec in sorted(ENVIRONMENTS.items()):
-        members = sorted(n for n, p in REGISTRY.items() if p.spec.env == name)
-        state = spec.state(PATHS)
-        if state in ("incomplete", "stale"):
-            needs_attention.append(name)
-        if state == "ok":
-            installed.append(name)
-        print(f"{name:16s} {explanation[state]:44s} "
-              f"{', '.join(members) if members else '-'}")
-
-    if installed:
-        example = installed[0]
-        print("\nTo debug a predictor, run its own interpreter directly -- there is "
-              "nothing to activate:")
-        print(f"  {PATHS.envs / example / '.venv/bin/python'} -c 'import torch; "
-              f"print(torch.__version__, torch.cuda.is_available())'")
-    if needs_attention:
-        print(f"\nRe-run: {VEPBENCH} install-env "
-              f"{' '.join(needs_attention) if len(needs_attention) == 1 else '<name>'}")
-        for name in needs_attention:
-            print(f"  {VEPBENCH} install-env {name}")
-    return 0
-
-
-def command_check_conventions(args: argparse.Namespace) -> int:
-    """Report which sign conventions still need confirming.
-
-    Harmonization is also verified arithmetically for every predictor, because
-    getting a sign wrong silently inverts a benchmark.
-    """
-    from vepbench.predictors import REGISTRY
-    from vepbench.schema import MORE_DELETERIOUS, harmonize
-
-    unverified = []
-    print(f"{'predictor':30s} {'score_type':26s} {'higher_is':18s} status")
-    print("-" * 100)
-    for name, predictor in sorted(REGISTRY.items()):
-        convention = predictor.spec.convention
-        probe = 2.5
-        expected = probe if convention.higher_is == MORE_DELETERIOUS else -probe
-        assert harmonize(probe, convention.higher_is) == expected, name
-        status = "verified" if convention.verified else "NEEDS CONFIRMATION"
-        if not convention.verified:
-            unverified.append((name, convention))
-        print(f"{name:30s} {convention.score_type:26s} {convention.higher_is:18s} {status}")
-
-    if unverified:
-        print("\nThese conventions were not confirmed against the method's own "
-              "documentation. Confirm each before trusting a benchmark, because an "
-              "inverted sign turns a good predictor into a bad one:\n")
-        for name, convention in unverified:
-            print(f"  {name}\n    {convention.source}\n")
-    else:
-        print("\nAll conventions are marked verified.")
+    print(f"{'score':24s} {'kind':9s} {'needs':24s} state")
+    print("-" * 78)
+    for score in SCORES.values():
+        needs = ", ".join(sorted(score.needs))
+        if score.env:
+            spec = ENVIRONMENTS.get(score.env)
+            state = spec.state(PATHS) if spec else "no environment"
+            state = f"env {score.env}: {state}"
+        else:
+            state = "built in"
+        print(f"{score.name:24s} {score.kind:9s} {needs:24s} {state}")
+    print()
+    print(f"ClinVar slices: {available(PATHS):,} proteins")
     return 0
 
 
 def command_install_env(args: argparse.Namespace) -> int:
-    from vepbench.envs import (
-        ENVIRONMENTS,
-        EnvError,
-        create_env,
-        env_profiles,
-        get_env,
-        resolve_backend,
-    )
+    from vepbench.envs import ENVIRONMENTS, create_env
 
-    profiles = env_profiles()
-    if args.list_profiles:
-        print("profiles (install one set at a time on a tight inode quota):")
-        for name, envs in profiles.items():
-            print(f"  {name:18s} {' '.join(envs)}")
-        print("\nCached predictions survive removing an environment, so results "
-              "from\nseparate runs accumulate in the same output table.")
-        return 0
-
-    try:
-        backend = resolve_backend(args.backend)
-    except EnvError as exc:
-        raise SystemExit(str(exc)) from exc
-
-    # Several names in one call: building one environment at a time is the
-    # common case, but installing a group should not need a loop in the shell.
-    requested_names = list(args.names)
-    for profile in args.profile or []:
-        if profile not in profiles:
-            raise SystemExit(
-                f"unknown profile {profile!r}. Known: {', '.join(profiles)}"
-            )
-        requested_names += profiles[profile]
-    if not requested_names:
-        raise SystemExit("give an environment name, or --profile, or 'all'")
-
-    names: list[str] = []
-    for requested in requested_names:
-        for name in (sorted(ENVIRONMENTS) if requested == "all" else [requested]):
-            if name not in names:
-                names.append(name)
+    names = args.names or sorted(ENVIRONMENTS)
     unknown = [n for n in names if n not in ENVIRONMENTS]
     if unknown:
-        # Check all of them before building any, so a typo in the last name
-        # is not discovered after twenty minutes of downloads.
-        raise SystemExit(
-            f"unknown environment(s): {', '.join(unknown)}. "
-            f"Known: {', '.join(sorted(ENVIRONMENTS))}"
-        )
-
-    print(f"building {len(names)} environment(s) with {backend}")
-    failed: list[str] = []
+        raise SystemExit(f"error: unknown environment(s) {', '.join(unknown)}; "
+                         f"available: {', '.join(sorted(ENVIRONMENTS))}")
     for name in names:
-        spec = get_env(name)
-        print(f"--- {name}: {spec.description}")
-        if spec.notes:
-            print(f"    note: {spec.notes}")
-        extra = spec.conda_packages(PATHS)
-        if extra.exists():
-            wanted = [ln.strip() for ln in extra.read_text().splitlines()
-                      if ln.strip() and not ln.startswith("#")]
-            how = "installed from conda" if backend != "uv" else (
-                "NOT installed: uv cannot supply these, use --backend conda"
-            )
-            print(f"    conda packages: {', '.join(wanted)} ({how})")
-        state = spec.state(PATHS)
-        if state == "ok" and not args.force:
-            print("    already installed and verified")
-            continue
-        if state == "incomplete":
-            print("    previous install did not finish; topping it up")
-        elif state == "stale":
-            print("    requirements changed since it was built; updating")
-        if args.dry_run:
-            continue
-        try:
-            venv = create_env(spec, paths=PATHS, force=args.force, backend=backend)
-            print(f"    installed and verified at {venv}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"    FAILED: {exc}")
-            failed.append(name)
-    if failed:
-        print(f"\n{len(failed)} environment(s) failed: {', '.join(failed)}")
-        print("Nothing downstream will use them; they report as unavailable "
-              "rather than producing wrong answers.")
-        return 1
-    return 0
-
-
-def command_benchmark(args: argparse.Namespace) -> int:
-    from vepbench.benchmark import (
-        HIGHER_IS_MORE_DAMAGING,
-        HIGHER_IS_MORE_FUNCTIONAL,
-        evaluate_by_group,
-        plot_summary,
-    )
-    from vepbench.merge import load_table
-
-    merged = load_table(Path(args.merged))
-    direction = (HIGHER_IS_MORE_DAMAGING if args.assay_direction == "damaging"
-                 else HIGHER_IS_MORE_FUNCTIONAL)
-    summary = evaluate_by_group(
-        merged, args.score_col, group_col=args.group_col, assay_direction=direction,
-        binarize_threshold=args.binarize_threshold,
-        binarize_quantile=args.binarize_quantile, n_boot=args.n_boot,
-        seed=args.seed, top_k=args.top_k,
-    )
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    summary.to_csv(out, index=False)
-    print(f"wrote {out}")
-
-    pooled = summary.loc[summary["group"] == "pooled"].sort_values(
-        "spearman", ascending=False
-    )
-    print(f"\n{'predictor':30s} {'n':>6s} {'spearman':>9s} {'95% CI':>18s} "
-          f"{'auroc':>7s} {'ndcg':>6s}")
-    for row in pooled.itertuples():
-        ci = f"[{row.spearman_ci_low:+.3f},{row.spearman_ci_high:+.3f}]"
-        print(f"{row.predictor:30s} {row.n_variants:6d} {row.spearman:+9.3f} "
-              f"{ci:>18s} {row.auroc:7.3f} {row.ndcg:6.3f}")
-
-    if args.plot:
-        path = plot_summary(summary, Path(args.plot))
-        if path:
-            print(f"wrote {path}")
+        create_env(ENVIRONMENTS[name], paths=PATHS, backend=args.backend,
+                   dry_run=args.dry_run, force=args.force)
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from vepbench.scores import all_names
+
     parser = argparse.ArgumentParser(
-        prog="vepbench",
-        description="Saturation variant-effect and stability prediction across many "
-                    "predictors, for merging with deep mutational scanning data.",
+        prog=VEPBENCH,
+        description="Score protein variants with several predictors and measure "
+                    "how well each separates pathogenic from benign ClinVar "
+                    "variants, protein by protein.",
     )
-    # Shared flags go on every subparser as well as the top level, so
-    # `vepbench run -q ...` works as readily as `vepbench -q run ...`.
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("-v", "--verbose", action="count", default=0)
     common.add_argument("-q", "--quiet", action="store_true")
     parser.add_argument("-v", "--verbose", action="count", default=0)
     parser.add_argument("-q", "--quiet", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True, parser_class=(
-        lambda **kwargs: argparse.ArgumentParser(parents=[common], **kwargs)
-    ))
+        lambda **kwargs: argparse.ArgumentParser(parents=[common], **kwargs)))
 
-    run = sub.add_parser("run", help="predict every substitution for one or more proteins")
-    run.add_argument("--uniprot", nargs="*", help="one or more UniProt accessions")
-    run.add_argument("--uniprot-list", help="file with one accession per line")
-    run.add_argument("--predictors", nargs="+", default=["all"],
-                     help="predictor names, or a group: all, sequence_only, "
-                          "structure_based, msa_based, stability, no_msa")
-    run.add_argument("--include-wt", action="store_true",
-                     help="also emit synonymous rows, scored 0")
-    run.add_argument("--force", action="store_true", help="ignore caches and recompute")
-    run.add_argument("--pdb", help="structure file to use instead of the AlphaFold model")
-    run.add_argument("--sequence", help="override the UniProt sequence")
-    run.add_argument("--fasta", help="override the UniProt sequence from a FASTA file")
-    run.add_argument("--msa", help="alignment file to use instead of generating one")
-    run.add_argument("--msa-backend", default="colabfold",
-                     choices=["colabfold", "ebi", "jackhmmer", "hhblits", "none"],
-                     help="colabfold (default) is deepest for least effort; ebi needs "
-                          "no local database but is shallower; jackhmmer and hhblits "
-                          "search a database you supply and are the most sensitive")
-    run.add_argument("--msa-database",
-                     help="for jackhmmer or hhblits, the database path (or set "
-                          "VEPBENCH_MSA_DATABASE, or leave it in data/databases/); "
-                          "for ebi, 'psiblast:uniprotkb' or 'ncbiblast:uniprotkb'")
-    run.add_argument("--email", help="contact address for EBI job submission "
-                                     "(or set VEPBENCH_EMAIL)")
-    run.add_argument("--domain", help="domain window as START-END, 1-based inclusive")
-    run.add_argument("--features", nargs="*", default=list(DEFAULT_FEATURES),
-                     choices=list(ALL_FEATURES))
-    run.add_argument("--device", choices=["cuda", "cpu", "mps"],
-                     help="override device selection (default: cuda when available)")
-    run.add_argument("--dtype", choices=["float32", "float16", "bfloat16"],
-                     help="compute dtype (default: bfloat16 on a capable GPU, "
-                          "float32 on CPU)")
-    run.add_argument("--batch-size", type=int,
-                     help="masked positions per forward pass (default: 16 on GPU, 4 on CPU)")
-    run.add_argument("--offline", action="store_true",
-                     help="use only cached inputs; never reach the network")
-    run.set_defaults(func=command_run)
+    def targets(p):
+        p.add_argument("--uniprot", nargs="*", help="one or more accessions")
+        p.add_argument("--uniprot-list", help="a file of accessions, one per line")
+        return p
 
-    doctor = sub.add_parser(
-        "doctor",
-        help="check environments, weights, binaries and credentials before a run",
-    )
-    doctor.add_argument("--predictors", nargs="+", default=["all"],
-                        help="only check what these need")
-    doctor.add_argument("--msa-backend", default="colabfold",
-                        choices=["colabfold", "ebi", "jackhmmer", "hhblits", "none"])
-    doctor.add_argument("--features", nargs="+",
-                        help="also check what these features need")
-    doctor.add_argument("--json", action="store_true",
-                        help="machine-readable report, for scripts that need to "
-                             "tell 'nothing can run' from 'something is missing'")
-    # -v/--verbose is inherited from the shared parent parser; passing it
-    # also lists the checks that already pass, not just the failures.
-    doctor.set_defaults(func=command_doctor)
+    def selection(p):
+        p.add_argument("--scores", nargs="+", default=None,
+                       help=f"which scores to use (default: all). "
+                            f"Available: {', '.join(all_names())}")
+        return p
 
-    clean = sub.add_parser(
-        "clean",
-        help="remove generated scratch, job scripts and logs",
-    )
-    clean.add_argument("--what", nargs="+", metavar="CATEGORY",
-                       help="categories to remove, or 'all' (never results); "
-                            "default: the ones that cost nothing to recreate")
-    clean.add_argument("--keep", nargs="+", metavar="ENV",
-                       help="environments to spare when removing venvs")
-    clean.add_argument("--keep-profile", nargs="+", metavar="NAME",
-                       help="spare every environment in these profiles")
-    clean.add_argument("--older-than", type=int, default=0, metavar="DAYS",
-                       help="only remove items last modified over DAYS ago")
-    clean.add_argument("--list", action="store_true",
-                       help="show the categories and what each costs to recreate")
-    clean.add_argument("--dry-run", action="store_true",
-                       help="show what would go, remove nothing")
-    clean.add_argument("--yes", "-y", action="store_true", help="skip the prompt")
-    clean.set_defaults(func=command_clean)
+    score = selection(targets(sub.add_parser(
+        "score", help="score every substitution in each protein")))
+    score.add_argument("--force", action="store_true",
+                       help="ignore cached scores and recompute")
+    score.add_argument("--offline", action="store_true",
+                       help="use only cached inputs; never reach the network")
+    score.add_argument("--thermompnn-table",
+                       help="a published ThermoMPNN table already on disk")
+    score.add_argument("--device", choices=["cuda", "cpu", "mps"])
+    score.add_argument("--batch-size", type=int,
+                       help="masked positions per forward pass")
+    score.set_defaults(func=command_score)
 
-    prefetch = sub.add_parser(
-        "prefetch",
-        help="download and cache sequences, structures and alignments ahead of a run",
-    )
-    prefetch.add_argument("--uniprot", nargs="*")
-    prefetch.add_argument("--uniprot-list")
-    prefetch.add_argument("--predictors", nargs="+", default=["all"],
-                          help="decides which inputs are needed")
-    prefetch.add_argument("--features", nargs="*", default=list(DEFAULT_FEATURES),
-                          choices=list(ALL_FEATURES))
-    prefetch.add_argument("--msa-backend", default="colabfold",
-                          choices=["colabfold", "ebi", "jackhmmer", "hhblits", "none"])
-    prefetch.add_argument("--msa-database")
-    prefetch.add_argument("--email")
-    prefetch.add_argument("--force", action="store_true")
-    prefetch.set_defaults(func=command_prefetch)
+    rep = selection(targets(sub.add_parser(
+        "report", help="AUC tables and ROC panels from scored proteins")))
+    rep.add_argument("--out", help="output directory (default: <outputs>/report)")
+    rep.add_argument("--min-per-class", type=int, default=5,
+                     help="pathogenic and benign variants needed to score a "
+                          "protein (default: %(default)s)")
+    rep.add_argument("--panels-per-page", type=int, default=6)
+    rep.add_argument("--no-plots", action="store_true",
+                     help="write the tables only")
+    rep.set_defaults(func=command_report)
 
-    merge = sub.add_parser("merge", help="join predictions onto a DMS table")
-    merge.add_argument("--dms", required=True)
-    merge.add_argument("--uniprot", required=True)
-    merge.add_argument("--predictions", help="wide predictions CSV (default: outputs/<id>/)")
-    merge.add_argument("--variant-col", help="column holding A123G or p.Ala123Gly")
-    merge.add_argument("--position-col")
-    merge.add_argument("--wt-col")
-    merge.add_argument("--mut-col")
-    merge.add_argument("--out", required=True)
-    merge.add_argument("--drop-unmatched", action="store_true",
-                       help="discard rows that did not match (kept by default)")
-    merge.add_argument("--offline", action="store_true")
-    merge.set_defaults(func=command_merge)
+    fetch = targets(sub.add_parser(
+        "fetch", help="download ClinVar, AlphaMissense and the ThermoMPNN table"))
+    fetch.add_argument("what", nargs="*",
+                       choices=["clinvar", "alphamissense", "thermompnn", "uniprot"],
+                       help="which resources (default: all)")
+    fetch.add_argument("--clinvar-file")
+    fetch.add_argument("--alphamissense-file")
+    fetch.add_argument("--thermompnn-file")
+    fetch.add_argument("--force", action="store_true")
+    fetch.add_argument("--include-somatic", action="store_true")
+    fetch.set_defaults(func=command_fetch)
 
-    listing = sub.add_parser("list", help="list the registered predictors")
-    listing.add_argument("--json", action="store_true")
-    listing.add_argument("--category")
-    listing.set_defaults(func=command_list)
-
-    status = sub.add_parser("status", help="show environment or per-protein run status")
-    status.add_argument("--uniprot")
-    status.add_argument("--all", action="store_true",
-                        help="tally every predictor across every protein run so far")
+    status = sub.add_parser("status", help="what is installed and available")
     status.set_defaults(func=command_status)
 
-    conventions = sub.add_parser("check-conventions",
-                                 help="audit the sign convention of every predictor")
-    conventions.set_defaults(func=command_check_conventions)
-
-    install = sub.add_parser("install-env", help="create an isolated predictor environment")
-    install.add_argument("names", nargs="*", metavar="NAME",
-                         help="one or more environment names, or 'all'")
-    install.add_argument("--profile", nargs="+", metavar="NAME",
-                         help="install the environments a predictor category "
-                              "needs, e.g. evolutionary")
-    install.add_argument("--list-profiles", action="store_true",
-                         help="show the profiles and what each contains")
-    install.add_argument("--backend", choices=["uv", "conda", "mamba", "micromamba"],
-                         help="how to build the environment (default: uv if present, "
-                              "otherwise micromamba, mamba or conda; or set "
-                              "VEPBENCH_ENV_BACKEND)")
-    install.add_argument("--force", action="store_true")
+    install = sub.add_parser("install-env", help="create a model environment")
+    install.add_argument("names", nargs="*")
+    install.add_argument("--backend", choices=["uv", "conda", "mamba", "micromamba"])
     install.add_argument("--dry-run", action="store_true")
+    install.add_argument("--force", action="store_true")
     install.set_defaults(func=command_install_env)
-
-    bench = sub.add_parser("benchmark", help="score predictions against measured values")
-    bench.add_argument("--merged", required=True)
-    bench.add_argument("--score-col", required=True, help="column of measured values")
-    bench.add_argument("--group-col",
-                       help="column to report per-group metrics for, usually uniprot_id")
-    bench.add_argument("--assay-direction", default="functional",
-                       choices=["functional", "damaging"],
-                       help="whether a higher measured value means more functional "
-                            "(default) or more damaging")
-    bench.add_argument("--binarize-threshold", type=float,
-                       help="measured-value cutoff defining a damaging variant")
-    bench.add_argument("--binarize-quantile", type=float, default=0.2,
-                       help="without a threshold, call the worst this fraction damaging")
-    bench.add_argument("--n-boot", type=int, default=1000)
-    bench.add_argument("--seed", type=int, default=0)
-    bench.add_argument("--top-k", type=int, default=100)
-    bench.add_argument("--out", default="benchmark_summary.csv")
-    bench.add_argument("--plot", help="path for a summary plot (PNG)")
-    bench.set_defaults(func=command_benchmark)
-
-    from vepbench.cli_proteome import add_parser as add_proteome_parser
-    add_proteome_parser(sub, common)
 
     return parser
 

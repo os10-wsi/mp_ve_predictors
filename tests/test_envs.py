@@ -83,23 +83,6 @@ def test_every_environment_has_a_requirements_file(name):
     assert spec.requirements().exists(), f"{name} has no requirements.txt"
 
 
-def test_conda_only_packages_are_declared_where_needed():
-    """Tools with no PyPI wheel are listed so the conda backend installs them."""
-    expected = {
-        "rasp": {"reduce", "openmm", "pdbfixer"},
-        "gemme": {"openjdk>=11"},
-        "huggingface": {"foldseek"},
-        "evcouplings": {"hmmer"},
-    }
-    for name, wanted in expected.items():
-        path = get_env(name).conda_packages()
-        assert path.exists(), f"{name} should declare conda packages"
-        listed = {
-            line.strip() for line in path.read_text().splitlines()
-            if line.strip() and not line.startswith("#")
-        }
-        assert listed == wanted
-
 
 def test_conda_build_uses_a_prefix_so_the_interpreter_path_is_unchanged(
     monkeypatch, tmp_path
@@ -221,34 +204,6 @@ def test_verification_names_what_is_missing(tmp_path, monkeypatch):
     assert "recorded as installed" in message
 
 
-def test_every_heavyweight_environment_is_verified():
-    """An environment with no import check could fail silently."""
-    from vepbench.envs import VERIFY_IMPORTS
-
-    unchecked = sorted(set(ENVIRONMENTS) - set(VERIFY_IMPORTS) - {"deepsequence"})
-    assert unchecked == [], f"these have no verification: {unchecked}"
-
-
-def test_an_incomplete_environment_makes_predictors_unavailable(tmp_path, monkeypatch):
-    """The failure the cluster hit: it must be reported, not hit at run time."""
-    from vepbench.config import Paths
-    from vepbench.predictors import REGISTRY
-    from vepbench.protein import ProteinContext
-    from vepbench.uniprot import UniProtRecord
-
-    paths = Paths(root=tmp_path)
-    spec = get_env("esm")
-    interpreter = spec.interpreter(paths)
-    interpreter.parent.mkdir(parents=True)
-    interpreter.touch()                      # python present, marker absent
-
-    protein = ProteinContext(
-        uniprot=UniProtRecord(uniprot_id="P1", sequence="MKVLA"), work_dir=tmp_path
-    )
-    availability = REGISTRY["esm2_650m"].availability(protein, paths=paths)
-    assert not availability.available
-    assert "did not finish" in availability.reason
-    assert "install-env esm" in availability.reason
 
 
 def test_a_package_recorded_but_missing_is_reinstalled(monkeypatch, tmp_path):
@@ -399,14 +354,6 @@ class TestBackendDiscovery:
             resolve_backend()
 
 
-def test_a_deleted_definition_says_how_to_restore_it(paths, monkeypatch):
-    """The definitions are tracked, so a missing one is a checkout problem."""
-    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/uv")
-    spec = get_env("eve")
-    assert not spec.directory(paths).exists()
-    with pytest.raises(EnvError, match=r"git checkout -- envs/eve"):
-        create_env(spec, paths=paths)
-
 
 def test_uv_cache_defaults_beside_the_environments(paths):
     """Otherwise uv copies instead of hardlinking, doubling disk and inodes."""
@@ -444,7 +391,7 @@ class TestCondaChannels:
         monkeypatch.setattr("subprocess.run",
                             lambda cmd, **kw: recorded.append(cmd) or type("R", (), {})())
         paths = Paths(root=tmp_path)
-        spec = get_env("gemme")          # has conda-packages.txt
+        spec = get_env("huggingface")          # has conda-packages.txt
         spec.directory(paths).mkdir(parents=True, exist_ok=True)
         spec.conda_packages(paths).write_text("openjdk>=11\n")
         _create_with_conda(spec, paths, spec.venv(paths), "conda")

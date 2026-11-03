@@ -1,3 +1,0 @@
-# plmc is built from source by install.sh, which needs a C toolchain.
-# hmmer supplies jackhmmer for the local MSA backend.
-hmmer

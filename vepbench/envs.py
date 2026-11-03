@@ -21,6 +21,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pandas as pd
+
 from vepbench import VEPBENCH
 from vepbench.config import PATHS, Paths
 
@@ -118,22 +120,17 @@ def register_env(spec: EnvSpec) -> EnvSpec:
 
 
 def env_profiles() -> dict[str, list[str]]:
-    """Environment sets, named after the predictor categories they serve.
+    """Which environment each score needs, for installing a subset at a time.
 
-    Derived from the registry rather than listed separately, so adding a
-    predictor cannot leave a profile quietly out of date. Intended for a
-    filesystem whose inode quota holds only a few environments at a time:
-    install one profile, run it, swap it for the next. Cached predictions
-    survive the swap, so the results accumulate.
+    Derived from the score registry rather than listed separately, so
+    adding a score cannot leave this quietly out of date.
     """
-    # Deferred: predictors imports this module, so a top-level import here
-    # would be circular.
-    from vepbench.predictors import REGISTRY  # noqa: PLC0415
+    from vepbench.scores import SCORES  # noqa: PLC0415 - scores imports nothing here
 
     profiles: dict[str, set[str]] = {}
-    for predictor in REGISTRY.values():
-        if predictor.spec.env:
-            profiles.setdefault(predictor.spec.category, set()).add(predictor.spec.env)
+    for score in SCORES.values():
+        if score.env:
+            profiles.setdefault(score.kind, set()).add(score.env)
     return {name: sorted(envs) for name, envs in sorted(profiles.items())}
 
 
@@ -152,81 +149,16 @@ register_env(EnvSpec(
           "and HF_TOKEN exported. ESM-IF1 weights come from dl.fbaipublicfiles.com.",
 ))
 register_env(EnvSpec(
-    name="esm_if1", python="3.11",
-    description="ESM-IF1 only. Separated from the main esm environment because it "
-                "needs torch-scatter and torch-sparse, whose prebuilt wheels lag "
-                "several torch releases behind.",
-    notes="Pinned to torch 2.4.1, for which PyG publishes wheels. Weights come from "
-          "dl.fbaipublicfiles.com, not Hugging Face.",
-))
-register_env(EnvSpec(
     name="huggingface", python="3.11",
     description="transformers models scored with masked marginals: SaProt, ProSST, "
                 "ProtT5 and Ankh.",
     notes="SaProt also needs foldseek on PATH for the 3Di structural alphabet.",
 ))
 register_env(EnvSpec(
-    name="proteinmpnn", python="3.11",
-    description="ProteinMPNN and ThermoMPNN, which share the ProteinMPNN feature code.",
-    notes="Both repositories are cloned into third_party/ by the install script.",
-))
-register_env(EnvSpec(
-    name="evcouplings", python="3.10",
-    description="EVmutation and the plmc couplings model through evcouplings.",
-    notes="plmc is built from source by the install script.",
-))
-register_env(EnvSpec(
-    name="eve", python="3.10",
-    description="EVE and popEVE, which share the Bayesian VAE code and torch pin.",
-    notes="EVE trains a VAE per protein; budget GPU hours per protein, not per variant.",
-    requires_gpu=True,
-))
-register_env(EnvSpec(
-    name="deepsequence", python="2.7",
-    description="DeepSequence, published against Theano and Python 2.7.",
-    notes="Legacy. Use the container in envs/deepsequence/Dockerfile.",
-))
-register_env(EnvSpec(
-    name="tranception", python="3.10",
-    description="Tranception and TranceptEVE; TranceptEVE needs EVE scores first.",
-    requires_gpu=True,
-))
-register_env(EnvSpec(
-    name="rasp", python="3.10",
-    description="RaSP, which pins an older torch and its own cavity model.",
-))
-register_env(EnvSpec(
-    name="gemme", python="3.11",
-    description="GEMME, which drives JET2 and needs a Java runtime.",
-    notes="Requires Java 8 or newer.",
-))
-register_env(EnvSpec(
-    name="vespa", python="3.11",
-    description="VESPA and VESPA-light from the Rost lab.",
-))
-register_env(EnvSpec(
-    name="s3f", python="3.10",
-    description="S3F and S3F-MSA, which need torch-geometric and torchdrug.",
-    requires_gpu=True,
-))
-register_env(EnvSpec(
-    name="venusrem", python="3.11",
-    description="VenusREM retrieval-enhanced scoring.",
-))
-register_env(EnvSpec(
-    name="promep", python="3.10",
-    description="ProMEP, which needs DGL and an SE(3)-Transformer build.",
-    requires_gpu=True,
-))
-register_env(EnvSpec(
-    name="metl", python="3.11",
-    description="METL pretrained models through metl-pretrained.",
-))
-register_env(EnvSpec(
-    name="stability_dg", python="3.11",
-    description="SaProt-dG and ESM3-dG from absolute-stability-predictor, which share "
-                "LoRA checkpoints and a stability head.",
-    notes="The ESM3 half needs the EvolutionaryScale licence.",
+    name="thermompnn", python="3.11",
+    description="ThermoMPNN, which builds on the ProteinMPNN feature code.",
+    notes="Both repositories are cloned into third_party/ by the install script, "
+          "because ThermoMPNN imports ProteinMPNN's featuriser.",
 ))
 register_env(EnvSpec(
     name="foldx", python="3.11",
@@ -595,3 +527,53 @@ def run_in_env(
         log.error("%s failed (exit %d): %s", runner.name, completed.returncode,
                   completed.stderr.strip()[-2000:])
     return RunnerResult(completed.stdout, completed.stderr, completed.returncode)
+
+
+def run_score(
+    score, protein, variants, *, paths: Paths = PATHS, options: dict | None = None,
+    timeout: int | None = None,
+):
+    """Run one model-backed score in its environment, returning its table.
+
+    The job file keeps the shape the runner scripts already expect, so the
+    scripts under scripts/runners/ are unchanged by the move away from the
+    old predictor registry.
+    """
+    spec = ENVIRONMENTS.get(score.env)
+    if spec is None:
+        raise EnvError(f"{score.name} names environment {score.env!r}, which "
+                       f"is not registered")
+
+    work_dir = Path(protein.work_dir) / score.name
+    work_dir.mkdir(parents=True, exist_ok=True)
+    variant_path = work_dir / "variants.csv"
+    variants.loc[:, ["position", "wt_aa", "mut_aa"]].to_csv(variant_path, index=False)
+
+    structure = protein.structure
+    job = {
+        "predictor": score.name, "uniprot_id": protein.uniprot_id,
+        "sequence": protein.sequence,
+        "structure_path": str(structure.path) if structure else None,
+        "structure_chain": structure.chain if structure else None,
+        "msa_path": None, "domain": None,
+        "variants_csv": str(variant_path),
+        "out_csv": str(work_dir / "scores.csv"),
+        "out_meta": str(work_dir / "meta.json"),
+        "work_dir": str(work_dir),
+        "weights_dir": str(paths.weights),
+        "third_party_dir": str(paths.third_party),
+        "options": {**score.options, **(options or {})},
+    }
+    runner = paths.root / "scripts" / "runners" / score.runner
+    if not runner.exists():
+        raise EnvError(f"no runner script at {runner}")
+
+    result = run_in_env(spec, runner, job, paths=paths, timeout=timeout)
+    if result.returncode != 0:
+        tail = result.stderr.strip().splitlines()[-6:]
+        raise EnvError(f"{score.name} runner exited {result.returncode}: "
+                       + " | ".join(tail))
+    out_csv = Path(job["out_csv"])
+    if not out_csv.exists():
+        raise EnvError(f"{score.name} runner produced no output at {out_csv}")
+    return pd.read_csv(out_csv)

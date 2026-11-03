@@ -125,12 +125,16 @@ def command_report(args: argparse.Namespace) -> int:
         if "label" not in frame.columns or frame["label"].notna().sum() == 0:
             continue
         labelled += 1
-        columns = [f"{p}__damaging" for p in predictors if f"{p}__damaging" in frame]
-        renamed = frame.rename(columns={f"{p}__damaging": p for p in predictors})
-        results += roc.evaluate(
-            renamed, [c.removesuffix("__damaging") for c in columns],
-            uniprot_id=accession, min_per_class=args.min_per_class,
-        )
+        # Score on the damage-oriented column, not the raw one. Build a fresh
+        # frame rather than renaming in place: the table holds both `x` and
+        # `x__damaging`, so renaming would leave two columns called `x` and
+        # every later lookup would get a DataFrame instead of a Series.
+        present = [p for p in predictors if f"{p}__damaging" in frame.columns]
+        oriented = pd.DataFrame({"label": frame["label"]})
+        for name in present:
+            oriented[name] = frame[f"{name}__damaging"]
+        results += roc.evaluate(oriented, present, uniprot_id=accession,
+                                min_per_class=args.min_per_class)
 
     if not results:
         print("error: no protein had enough labelled ClinVar variants to score. "

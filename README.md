@@ -1,513 +1,160 @@
 # vepbench
 
-Saturation variant-effect and stability prediction across many published
-predictors, for one UniProt ID at a time, in a form that merges cleanly with
-deep mutational scanning data.
+Score protein variants with ten predictors, then measure how well each one
+separates pathogenic from benign ClinVar variants — protein by protein.
 
-For a protein of length *L* it produces every single amino acid substitution
-at every position, *L* x 19 rows, scored by each predictor you ask for, plus
-per-position structural and evolutionary features.
-
-Built for membrane-protein biogenesis benchmarking, which shapes several
-decisions below; see [Membrane proteins](#membrane-proteins).
-
-New here? [RUNBOOK.md](RUNBOOK.md) is the step-by-step order to do things
-in, from a fresh clone to merged predictions.
+Give it a list of UniProt accessions. It scores every possible single
+substitution, collects ClinVar labels for the human ones, and reports an
+ROC-AUC with an error for every predictor on every protein, plus the
+curves.
 
 ## Quick start
 
 ```bash
-pip install -e .
+pip install -e '.[plots]'
 
-python3 -m vepbench list            # what exists
-python3 -m vepbench status          # which environments are installed
+# once: the shared resources
+python3 -m vepbench fetch --uniprot-list ids.txt
 
-python3 -m vepbench install-env esm # one environment (see envs/README.md)
-
-python3 -m vepbench doctor          # is everything installed and downloaded?
-python3 -m vepbench clean           # remove scratch, job scripts and logs
-
-# one protein, one predictor
-python3 -m vepbench run --uniprot P26678 --predictors esm2_650m
-
-# a subset, or everything
-python3 -m vepbench run --uniprot P26678 --predictors esm1v_full saprot foldx
-python3 -m vepbench run --uniprot P26678 --predictors all
-
-# many proteins
-python3 -m vepbench run --uniprot-list ids.txt --predictors all
+# the work
+python3 -m vepbench score  --uniprot-list ids.txt
+python3 -m vepbench report --uniprot-list ids.txt --out report/
 ```
 
-The orchestrator needs only numpy, pandas and requests. Predictors live in
-isolated environments and are reached over subprocess, so installing vepbench
-never pulls in torch.
+`python3 -m vepbench status` shows which scores are ready and which
+interpreter is which.
 
-### Worked example
+## The ten scores
 
-```bash
-bash examples/run_demo.sh
-```
+| score | source | needs | raw direction |
+|---|---|---|---|
+| `blosum62` | built in | sequence | higher = tolerated |
+| `delta_hydrophobicity` | built in | sequence | higher = damaging |
+| `delta_volume` | built in | sequence | higher = damaging |
+| `delta_charge` | built in | sequence | higher = damaging |
+| `solvent_exposure` | built in | structure | higher = tolerated |
+| `alphamissense` | published table | human only | higher = damaging |
+| `thermompnn` | published table, else computed | structure | higher = damaging |
+| `esm1v` | model (`esm`) | sequence | higher = tolerated |
+| `saprot` | model (`huggingface`) | structure | higher = tolerated |
+| `foldx` | model (`foldx`) | structure | higher = damaging |
 
-Runs predict, merge and benchmark end to end on phospholamban (P26678) using
-only the built-in baselines, so it needs no model weights and no GPU. It
-includes two deliberately broken DMS rows to show how unmatched rows are
-reported.
+Every score is written twice: the raw number as the method reported it,
+and `<name>__damaging`, oriented so higher always means more likely
+pathogenic. The ROC analysis reads the second; nothing is silently
+flipped and the original is always recoverable.
 
-## GPU
+**The physicochemical deltas are magnitudes.** A substitution that makes a
+residue much larger and one that makes it much smaller are both
+disruptive, so these score `abs(delta)`. A signed version would cancel one
+against the other on a ROC curve.
 
-Everything that can use a GPU does, automatically. Three flags override the
-defaults:
+**`solvent_exposure` is a property of the position**, so every
+substitution at one residue shares a value. That is deliberate: it asks
+whether buried positions carry more pathogenic variants, which is a real
+effect worth measuring beside the predictors.
 
-| flag | default |
-|---|---|
-| `--device` | `cuda` when available, else `mps`, else `cpu` |
-| `--dtype` | `bfloat16` on a capable CUDA card, `float16` otherwise, `float32` on CPU |
-| `--batch-size` | 16 on GPU, 4 on CPU |
+**AlphaMissense is not independent of this benchmark.** It is calibrated
+against ClinVar, so its AUC here is not measuring what an unsupervised
+predictor's is. Its licence is CC BY-NC-SA 4.0 — non-commercial, unlike
+the rest.
 
-`vepbench list` shows approximate VRAM per predictor. If a model runs out of
-memory the error names the flags that fix it. Ensemble members load one at a
-time and are freed, so ESM-1v peaks at one 650M model rather than five.
+### FoldX is scored at ClinVar positions only
 
-Hardware settings are deliberately **excluded** from the cache key. Moving a
-model from CPU to GPU should not change its score, and if it does that is a
-bug worth seeing rather than hiding.
+FoldX costs tens of seconds per variant. At saturation that is around four
+days for a single protein, and the ~8,800 scores per protein away from a
+ClinVar position would never be read, because the ROC analysis only ever
+uses labelled variants. So it scores the labelled positions and leaves
+the rest blank. It also needs a licensed binary — set `FOLDX_BINARY`.
 
-The pinned torch in `envs/*/requirements.txt` targets CUDA 13. For an older
-driver, install the matching build into the environment yourself; see
-[`envs/README.md`](envs/README.md).
+### ThermoMPNN prefers the published table
+
+A precomputed table covers some proteins and not others, so each protein
+asks whether it is in there. Download it from
+<https://zenodo.org/records/18381534> and pass `--thermompnn-file`, or put
+it at `data/weights/thermompnn/thermompnn_predictions.tsv.gz`.
+
+Coverage is measured against the variants actually requested, and anything
+below 50% is treated as absent and computed instead. A partially covering
+table is the dangerous case: taken at face value it yields a column that
+looks complete and silently stops wherever the table happened to end. The
+`source` field in `status.json` records which happened for each protein.
 
 ## Output
 
-`outputs/<uniprot>/` holds:
-
-| file | contents |
-|---|---|
-| `predictions_long.csv` | one row per (variant, predictor) |
-| `predictions_wide.csv` | one row per variant, one column per predictor, plus features |
-| `metadata.json` | sequence, structure, MSA statistics, domain window, predictor versions, hardware, runtimes, failures, caveats |
-| `status.json` | per-predictor outcome: ok, cached, unavailable or failed, with the reason |
-| `per_member/` | individual replicate scores, for example each of the five ESM-1v models |
-
-### Long format
-
-| column | meaning |
-|---|---|
-| `uniprot_id` | accession |
-| `position` | 1-based position in the canonical UniProt sequence |
-| `wt_aa`, `mut_aa` | wild-type and mutant residue |
-| `variant` | `A123G` |
-| `predictor` | predictor name |
-| `score` | the raw number the method produces, untouched |
-| `score_type` | `log_likelihood_ratio`, `ddG_kcal_mol`, `evolutionary_index`, ... |
-| `higher_is` | `more_deleterious` or `more_tolerated`, documenting the raw convention |
-| `score_harmonized` | sign-flipped so **higher always means more damaging**, same units |
-| `model_version` | checkpoint or version string |
-
-### Wide format
-
-Key columns (`uniprot_id, position, wt_aa, mut_aa, variant`), then one raw
-column per predictor, then a matching block of `<predictor>__harmonized`
-columns, then the feature columns.
-
-## Merging with a DMS table
-
-```bash
-python3 -m vepbench merge --dms my_dms.csv --uniprot P26678 \
-    --variant-col variant --out merged.csv
-
-# or with separate columns, three-letter codes accepted
-python3 -m vepbench merge --dms my_dms.csv --uniprot P26678 \
-    --position-col pos --wt-col wt --mut-col mut --out merged.csv
+```
+<outputs>/
+  <ACCESSION>/
+    scores.tsv          every substitution x every score, plus the ClinVar label
+    status.json         what ran, how long it took, and where each number came from
+  report/
+    auc_by_protein.tsv  one row per protein, an AUC and an error per predictor
+    auc_long.tsv        one row per protein and predictor
+    auc_summary.tsv     across proteins, per predictor
+    roc_curves.pdf      one panel per protein, every predictor drawn in it
+    auc_ranking.png     median AUC per predictor
 ```
 
-**Nothing is dropped silently.** Every input row comes back with a
-`match_status`:
+`auc_by_protein.tsv` is the one asked for: a thousand accessions give a
+thousand rows, with `<name>_auc` and `<name>_se` for each predictor. The
+error is the Hanley–McNeil standard error, which is analytic — ten
+thousand AUCs is too many to bootstrap.
 
-| status | meaning |
-|---|---|
-| `matched` | joined to a prediction |
-| `wt_mismatch` | the table's wild-type residue disagrees with the UniProt sequence |
-| `out_of_range` | position beyond the sequence |
-| `multi_mutant` | more than one substitution in the field |
-| `unparseable` | notation not recognised |
-| `nonsense` | a stop codon; no substitution score exists |
-| `synonymous` | scored only when `--include-wt` was used |
-| `no_prediction` | parsed and valid, but no predictor produced a score |
+A protein is scored only where ClinVar gives at least five pathogenic and
+five benign variants. Below that the interval spans most of the possible
+range and the number means nothing; `--min-per-class` moves the line.
 
-A `match_detail` column explains each failure, the unmatched rows go to
-`<out>.unmatched.csv`, and a summary to `<out>.merge_report.json`.
+## ClinVar labels
 
-## Benchmarking
+Pathogenic and likely pathogenic are the positive class, benign and likely
+benign the negative. Uncertain and conflicting classifications are carried
+through `scores.tsv` but never scored: they are the variants a predictor
+is most useful for, and treating a guess about them as truth would measure
+the guess.
+
+The mapping is the part that can be wrong without looking wrong. ClinVar
+is organised around RefSeq transcripts and this around UniProt canonical
+sequences, and for some genes those disagree about which isoform is
+canonical. Every row has to clear two gates: the gene symbol must resolve
+to exactly one accession, and the wild-type residue ClinVar names must be
+the one the UniProt sequence carries at that position. Failures are
+counted and reported, never coerced.
+
+## Caching
+
+Every score is cached per protein under `data/cache/predictions/`, so a
+re-run fills only the gaps. A scoring run writes **every** column it has
+cached, not just the ones requested — `--scores esm1v` cannot drop the
+other nine from the file.
+
+Scores cached by the previous version of this pipeline are read through an
+alias (`esm1v_full` → `esm1v`, `blosum62_baseline` → `blosum62`), so
+results already computed are not computed again. Those are validated by
+checking every cached wild-type residue against the current sequence,
+rather than by a fingerprint this code cannot reproduce.
+
+## Environments
+
+Three scores need a model, and their dependencies conflict, so each gets
+its own environment under `envs/<name>/.venv`, invoked over a subprocess.
+You never activate these — the orchestrator calls them by absolute path.
 
 ```bash
-python3 -m vepbench benchmark --merged merged.csv --score-col abundance \
-    --group-col uniprot_id --plot summary.png
+python3 -m vepbench install-env esm huggingface thermompnn foldx
 ```
 
-Reports Spearman, Pearson, AUROC, NDCG and top-*k* recall with bootstrap
-confidence intervals, per protein and pooled, computed on the harmonized
-scores so every predictor is oriented the same way.
+If CUDA wheels do not match the driver, torch loads and silently runs on
+CPU. Set `VEPBENCH_TORCH_INDEX=https://download.pytorch.org/whl/cu126` for
+any CUDA 12 driver before installing.
 
-`--assay-direction` says which way your measured column runs. The default,
-`functional`, means a higher measured value is a more functional protein,
-which is usual for an abundance or biogenesis assay. Correlations are then
-reported so that a predictor which correctly identifies damaging variants
-scores **positively**.
+## Paths
 
-## Inputs, fetched automatically
-
-| input | source | override |
+| what | where | override |
 |---|---|---|
-| sequence | UniProt REST, canonical isoform | `--sequence`, `--fasta` |
-| structure | AlphaFold DB | `--pdb` |
-| MSA | EBI PSI-BLAST, or ColabFold, or local jackhmmer/HHblits | `--msa`, `--msa-backend` |
-| domain | UniProt Domain, else Pfam/InterPro, else transmembrane span | `--domain START-END` |
-
-Everything is cached under `data/cache/`, and `--offline` refuses to touch the
-network, which is how the test suite runs.
-
-### Alignments
-
-Nine of the predictors need an MSA. Four backends:
-
-- **`colabfold`** (default) uses the public MMseqs2 server against UniRef30
-  plus environmental databases. The deepest alignments for the least effort
-  and no local database. On phospholamban it returned 105 sequences at
-  Neff 10.2 in 14 seconds. It is a shared community server, so for a large
-  batch prefer a local backend.
-- **`ebi`** submits PSI-BLAST or BLAST to the EBI Job Dispatcher. No local
-  database either, but jobs queue server-side for minutes and the alignments
-  are shallower: the same protein gave Neff 1.75. EBI requires a contact
-  address, so pass `--email` or set `VEPBENCH_EMAIL`.
-- **`jackhmmer`** and **`hhblits`** search a database you supply. The most
-  sensitive route, and the one EVE and EVcouplings were built around. See
-  [Local sequence databases](#local-sequence-databases).
-- **`none`** skips the alignment, and MSA-dependent predictors report why.
-
-Neff and coverage are computed for every alignment. Below Neff 100, or 50
-sequences, the run warns that EVE, GEMME, EVmutation and DeepSequence are
-unreliable, and records the warning in `metadata.json`. Short, highly
-conserved proteins trip this legitimately: phospholamban's homologues are
-about 72% identical to each other, so no backend reaches a usable depth for
-it, and the evolutionary models should simply not be trusted on that protein.
-
-### Local sequence databases
-
-UniRef90 for jackhmmer is roughly **65 GB compressed and 180 GB unpacked**, and
-UniRef30 for HHblits about 90 GB. These live on the filesystem, never in the
-repository. GitHub rejects any file over 100 MB, and Git LFS caps at 2 GB per
-file, so a database of this size cannot be committed under any configuration.
-
-```bash
-bash scripts/setup_uniref90.sh          # downloads, unpacks, reports the size
-```
-
-It lands in `data/databases/`, which `.gitignore` already excludes, and is
-found there automatically. To keep it elsewhere, for example on a fast scratch
-disk:
-
-```bash
-export VEPBENCH_DATABASES=/scratch/db          # where setup_uniref90.sh writes
-export VEPBENCH_MSA_DATABASE=/scratch/db/uniref90.fasta   # or name the file
-python3 -m vepbench run --uniprot P26678 --predictors msa_based \
-    --msa-backend jackhmmer
-```
-
-Put it on local disk rather than a network mount: jackhmmer streams the whole
-file on every search. You also need HMMER installed (`apt-get install hmmer`
-or `conda install -c bioconda hmmer`).
-
-### Numbering
-
-Mismatches between UniProt numbering and structure numbering are the most
-common source of silent errors here, so they are errors, not warnings:
-
-- Structures are mapped by direct match, then contiguous offset, then global
-  alignment. A residue that cannot be mapped confidently is left unmapped
-  rather than guessed.
-- Every output row is asserted to have `wt_aa` equal to the UniProt residue at
-  that position. A predictor that violates this fails rather than writing a row.
-- The mapping route and coverage go into `metadata.json`.
-
-## Features
-
-Added as columns in the wide table. On by default: `rsasa`, `plddt`,
-`physchem`, `blosum`, `grantham`, `membrane`. Behind `--features`: `entropy`,
-`gaps`, `depth`, `contacts`, `secondary_structure`, `bilayer_depth`.
-
-| feature | notes |
-|---|---|
-| `rsasa` | Shrake-Rupley, 1.4 A probe, normalised by Tien et al. 2013 maxima |
-| `plddt` | per-residue, AlphaFold models only |
-| `contact_number` | C-alpha neighbours within 10 A |
-| `residue_depth` | distance from C-alpha to the nearest accessible surface point |
-| `secondary_structure` | DSSP, if `mkdssp` is installed; omitted otherwise |
-| `msa_entropy_bits`, `msa_gap_fraction` | per-position conservation |
-| `blosum62`, `grantham` | substitution matrices |
-| `delta_hydropathy`, `delta_volume`, `delta_charge` | plus `introduces_proline`, `removes_glycine`, `introduces_charge` |
-| `tm_segment`, `in_transmembrane`, `topology`, `residues_to_nearest_tm` | from UniProt |
-| `bilayer_depth` | signed distance along the membrane normal, for an OPM or PDBTM model |
-
-A feature whose input is missing is **omitted**, never filled with a
-placeholder.
-
-## Proteome-wide analysis
-
-**For the full step-by-step procedure, from `git pull` to the figures, see
-[`docs/PROTEOME_RUNBOOK.md`](docs/PROTEOME_RUNBOOK.md).** The summary here is
-what the stages are and why they are separate.
-
-`vepbench proteome` runs the whole membrane proteome against ClinVar instead
-of one protein against a DMS table. The stages are separate commands because
-the whole thing takes days and nothing that long should have to start over:
-
-```bash
-# 1. freeze the protein set (5,243 reviewed human KW-0812 entries)
-python3 -m vepbench proteome define --set human_membrane
-
-# 2. download UniProt entries, ClinVar and AlphaMissense (run on a machine
-#    with a route to ftp.ncbi.nlm.nih.gov and storage.googleapis.com)
-python3 -m vepbench proteome fetch-data --set human_membrane
-
-# 3. submit the predictions as an LSF array
-python3 -m vepbench proteome run --set human_membrane --submit
-
-# 4. collect the per-protein outputs and score them
-python3 -m vepbench proteome aggregate --set human_membrane
-python3 -m vepbench proteome analyse  --set human_membrane
-```
-
-`aggregate` and `analyse` are safe to rerun while jobs are still finishing;
-they report how much of the proteome they actually found rather than
-assuming the run completed.
-
-### What runs at this scale, and what does not
-
-`--predictors proteome` is the default for stage 3 and expands to everything
-that can realistically cover thousands of proteins: no per-protein alignment
-to build, and no per-variant cost that explodes at saturation. The excluded
-methods and why:
-
-| excluded | reason |
-|---|---|
-| the ten MSA-based predictors | each needs an alignment built per protein. The ColabFold API rate-limits well below this volume. Build them separately first if you want this tier. |
-| `foldx` | tens of seconds per variant; the membrane proteome is thousands of CPU-years |
-| `rasp` | the bundled upstream code has no prediction entry point — see `PREDICTORS.md` |
-
-`PredictorSpec.scales_to_proteome` records the judgement, so the group stays
-correct as predictors are added.
-
-### ClinVar mapping
-
-ClinVar is organised around RefSeq transcripts and vepbench around UniProt
-canonical sequences, and for some genes those disagree about which isoform
-is canonical. A gene-symbol join alone would line up the right protein at
-the wrong coordinates and produce a table that passes every shape check
-while being nonsense.
-
-Every row therefore has to clear two gates: the gene symbol must resolve to
-exactly one reviewed accession in the manifest, and the wild-type residue
-ClinVar names must be the residue the UniProt sequence carries at that
-position. Failures are counted per gene in `clinvar/mapping_report.tsv` and
-never coerced. **Read that report before trusting the analysis.** A gene
-with a high `wild_type_residue_disagrees` count is one where the two
-databases disagree about the canonical isoform.
-
-Pathogenic and likely pathogenic become label 1, benign and likely benign
-label 0. Uncertain and conflicting classifications are kept in the table but
-left unlabelled: they are the variants a predictor is most useful for, and
-scoring against a guess about them would measure the guess.
-
-### Reading the results
-
-Lead with `metrics_summary.tsv`, the AUROC **within** each protein. Pooled
-AUROC across the proteome rewards a predictor that merely separates
-well-studied genes from the rest, because pathogenic variants are not
-distributed evenly across genes. `plots/pooled_vs_per_protein.png` shows the
-size of that gap per predictor.
-
-AlphaMissense is read from its published table rather than run locally, and
-it is calibrated against ClinVar. Its number here is not measuring the same
-thing as an unsupervised predictor's, so it is flagged as
-`trained_on_clinvar` in every results table and drawn in a separate colour
-in every figure. Its licence is CC BY-NC-SA 4.0 — non-commercial, unlike
-the permissive licences on most of the rest.
-
-### Scale
-
-The membrane proteome is 5,243 proteins, 2.9M residues and 55.6M possible
-substitutions. Install the extra that makes tables that size readable:
-
-```bash
-pip install -e '.[proteome]'     # adds pyarrow and matplotlib
-```
-
-Without pyarrow the tables fall back to gzipped CSV, which works for a
-handful of proteins and is refused above five million rows rather than
-written as a file nobody can read back. Budget roughly 250-350 GB and, more
-importantly, about 150,000 files: on a cluster it is the inode quota that
-runs out first.
-
-## Membrane proteins
-
-This repository exists to benchmark predictors against a membrane-protein
-biogenesis dataset, which is a harder case than most of these methods were
-built for. Nothing here changes any method to compensate. What it does:
-
-- **Flags the mismatch.** Every stability predictor and both inverse-folding
-  models were trained or parameterised largely on soluble, globular proteins.
-  When the UniProt entry has transmembrane segments, that caveat is written
-  into `metadata.json` and printed at the end of the run.
-- **Flags the structure.** An AlphaFold model has no bilayer, so rSASA and
-  residue depth describe a protein in water. Supply an OPM or PDBTM model with
-  `--pdb` for `bilayer_depth` and more meaningful burial.
-- **Defines the domain sensibly.** For the domain-level variants of EVE and
-  ESM-1v, the default window for a membrane protein spans the first to the
-  last UniProt transmembrane segment. Override with `--domain START-END`.
-- **Annotates topology.** Transmembrane segment index, inside/outside
-  topology and distance to the nearest segment are feature columns.
-
-## Sign conventions
-
-Conventions differ between methods and are easy to get wrong in a way that
-silently inverts a benchmark. Every predictor records its direction and where
-that direction was read from:
-
-```bash
-python3 -m vepbench check-conventions
-```
-
-Four currently have unconfirmed directions: `thermompnn`, `metl_global`,
-`saprot_dg`, `esm3_dg`. Confirm them against the method's own
-documentation before trusting a benchmark. A unit test pins all 36 directions,
-so a change is deliberate rather than accidental.
-
-## Isolated environments
-
-`vepbench status` prints the orchestrator interpreter and the predictor
-environment paths at the top of its output. The orchestrator is the one you
-activate; the predictor environments are invoked by absolute path and are
-never activated. See
-[`docs/PROTEOME_RUNBOOK.md`](docs/PROTEOME_RUNBOOK.md#which-interpreter-is-which)
-for how to reproduce a failing predictor by hand.
-
-These tools pin incompatible versions of torch, numpy and transformers, and
-one still targets Python 2.7, so they cannot share an interpreter. Each gets
-its own environment under `envs/<name>/.venv`, driven over subprocess with a
-JSON job file.
-
-```bash
-python3 -m vepbench install-env esm
-python3 -m vepbench install-env esm --backend conda   # or mamba, micromamba
-python3 -m vepbench install-env all --dry-run         # see what each one is first
-python3 -m vepbench status
-```
-
-uv and conda both work and both produce an environment at the same path. uv
-is preferred when present for speed; conda additionally installs the binaries
-that have no PyPI wheel (foldseek, reduce, openmm, pdbfixer, openjdk, hmmer)
-from bioconda. Set `VEPBENCH_ENV_BACKEND` to fix the choice.
-
-See [`envs/README.md`](envs/README.md) for sizes and hardware notes. FoldX is
-licensed and is not distributed here; set `FOLDX_BINARY` to your own copy.
-
-### Gated models and credentials
-
-ESM3 and ESM C need the EvolutionaryScale licence accepted on Hugging Face and
-a token exported as `HF_TOKEN`. Create one at
-<https://huggingface.co/settings/tokens> (a read token is enough), accept the
-licence at <https://huggingface.co/EvolutionaryScale/esm3-sm-open-v1>, then
-`export HF_TOKEN=hf_...`.
-
-Keep every credential out of the repository. `HF_TOKEN` and `FOLDX_BINARY`
-are read from the environment precisely so that nothing has
-to be written into a tracked file. If a token is ever pasted somewhere it
-might be read, revoke it at the same settings page and issue a new one; tokens
-cannot be un-shared.
-
-### A networking note
-
-Hugging Face serves large files through its Xet CDN by default, which some
-networks allow `huggingface.co` but block. Every runner subprocess therefore
-gets `HF_HUB_DISABLE_XET=1`, falling back to the classic endpoint. Set
-`VEPBENCH_ALLOW_XET=1` to leave the default alone. Similarly, AlphaFold DB
-answers 403 to a bare client user agent, so every outbound request sends a
-real `User-Agent`.
-
-## Resumability and failure isolation
-
-- Results are cached per predictor, per protein, against a fingerprint of
-  exactly the inputs that predictor consumes. Re-running skips finished work;
-  `--force` recomputes.
-- A predictor that cannot run is marked `unavailable` with the specific reason
-  and contributes no rows. One that crashes is marked `failed` with its
-  traceback. Neither affects the others.
-- A predictor never invents a score. A variant an upstream tool did not score
-  is written empty, not zero.
-- FoldX caches per variant, so an interrupted saturation scan resumes.
-
-## Reproducibility
-
-`metadata.json` records the vepbench version and git hash, Python and
-platform, the device and dtype actually used, the UniProt sequence and its
-version, the structure source and mapping route, MSA backend, depth and Neff,
-the domain window and where it came from, every predictor's checkpoint string,
-per-predictor runtimes, and every failure. Environments are pinned in
-`envs/*/requirements.txt`, and `scripts/_common.sh` appends the commit of
-every cloned third-party repository to `data/weights/provenance.tsv`.
-
-## Development
-
-```bash
-pip install -e '.[dev]'
-python -m pytest -q
-python scripts/generate_predictors_md.py   # after changing a predictor
-```
-
-The test suite runs entirely offline against cached fixtures. The test protein
-is phospholamban (P26678), 52 residues with one transmembrane helix, giving
-988 variants.
-
-`tests/fixtures/*_TESTONLY.pdb` are **synthetic idealised helices** generated
-by `scripts/make_test_fixture.py`, so the PDB reader, the renumbering and the
-surface code can be tested deterministically. They are not structural models
-and must never be used as a structure input for a real prediction.
-`AF-P26678-F1-model_v6.pdb` beside them is the real AlphaFold model, used to
-test pLDDT and numbering against genuine data.
-
-## What is and is not verified
-
-**Verified by running it**: the output schema and harmonization, saturation
-enumeration, variant parsing, UniProt fetching, AlphaFold download and
-parsing, UniProt renumbering through all three routes, Shrake-Rupley surface
-areas, contact number, the EBI alignment conversion against a real EBI result,
-MSA statistics and Neff, conservation entropy, all feature columns, Grantham
-and BLOSUM62 against their published matrices, the DMS merge including every
-failure mode, all benchmark metrics, caching and cache invalidation, failure
-isolation and the CLI end to end.
-
-**ESM-2 650M is verified against real downloaded weights, through the whole
-pipeline**: environment creation, weight download, subprocess dispatch,
-scoring, schema validation and caching. 988 phospholamban variants in 111
-seconds on four CPU cores. The scores are also right, not merely present:
-
-| substitution | transmembrane helix | cytoplasmic region |
-|---|---|---|
-| to a charged residue | -1.82 | +0.08 |
-| to a hydrophobic residue | +0.15 | -0.48 |
-| to proline | -1.58 | -0.60 |
-
-The model insists the helix stays hydrophobic, penalises a helix-breaking
-proline inside it, and ranks substitutions at the initiator methionine worst
-of all 988.
-
-**Not executed yet**: the predictors whose weights or upstream repositories
-were not installed in the development container. Their wrappers, runners,
-environment specifications and install scripts are written against each
-method's documented interface and are syntax and registry checked, but expect
-small interface drift the first time you run each one. The runners fail with
-the upstream error text rather than swallowing it, and a missing dependency
-is reported as `unavailable` with the fix rather than as a crash.
-
-See [PREDICTORS.md](PREDICTORS.md) for the full table, per-method notes, and
-what was found when checking the methods whose existence was uncertain.
+| results | `outputs/` | `VEPBENCH_OUTPUTS` |
+| caches | `data/cache/` | `VEPBENCH_DATA` |
+| weights and tables | `data/weights/` | `VEPBENCH_WEIGHTS` |
+| cloned repositories | `third_party/` | `VEPBENCH_THIRD_PARTY` |
+
+Running two protein sets means two `VEPBENCH_OUTPUTS` trees. The caches
+are deliberately shared, so a protein scored once is scored once.

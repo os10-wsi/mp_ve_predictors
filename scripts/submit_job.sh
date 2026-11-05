@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Submit a vepbench run to LSF.
+# Submit a vepbench scoring run to LSF.
 #
 #   bash scripts/submit_job.sh --uniprot P26678
-#   bash scripts/submit_job.sh --uniprot P26678 --predictors esm2_650m saprot
-#   bash scripts/submit_job.sh --uniprot-list ids.txt --predictors ready
+#   bash scripts/submit_job.sh --uniprot P26678 --scores esm1v saprot
+#   bash scripts/submit_job.sh --uniprot-list ids.txt --scores all
 #
 # --max-parallel 0 submits the array unthrottled.
 #
@@ -22,7 +22,7 @@
 #   - It pins VEPBENCH_* and HF_HOME to absolute paths resolved here. Without
 #     that the job falls back to $HOME on the compute node, which on a cluster
 #     is a small quota, and a couple of checkpoints fill it.
-#   - It runs `vepbench doctor` before submitting, so a missing environment
+#   - It runs `vepbench status` before submitting, so a missing environment
 #     costs you a second rather than a place in the queue.
 set -euo pipefail
 
@@ -31,8 +31,7 @@ cd "$ROOT"
 
 ACCESSIONS=()
 LIST=""
-PREDICTORS=()
-FEATURES=()
+SCORES=()
 QUEUE="${VEPBENCH_QUEUE:-gpu}"
 # Some clusters refuse a submission that names no fairshare group. LSF reads
 # LSB_DEFAULTGROUP by itself, so -G is only added when one is given here.
@@ -57,8 +56,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --uniprot)       shift; while [ $# -gt 0 ] && [[ "$1" != --* ]]; do ACCESSIONS+=("$1"); shift; done ;;
     --uniprot-list)  LIST="$2"; shift 2 ;;
-    --predictors)    shift; while [ $# -gt 0 ] && [[ "$1" != --* ]]; do PREDICTORS+=("$1"); shift; done ;;
-    --features)      shift; while [ $# -gt 0 ] && [[ "$1" != --* ]]; do FEATURES+=("$1"); shift; done ;;
+    --scores)        shift; while [ $# -gt 0 ] && [[ "$1" != --* ]]; do SCORES+=("$1"); shift; done ;;
     --queue)         QUEUE="$2"; QUEUE_SET=1; shift 2 ;;
     --gpu-spec)      GPU_SPEC="$2"; shift 2 ;;
     --cores)         CORES="$2"; shift 2 ;;
@@ -86,7 +84,7 @@ if [ -n "$LIST" ] && [ ! -f "$LIST" ]; then
   echo "error: no such file: $LIST" >&2
   exit 2
 fi
-if [ ${#PREDICTORS[@]} -eq 0 ]; then PREDICTORS=(all); fi
+if [ ${#SCORES[@]} -eq 0 ]; then SCORES=(all); fi
 
 # The default queue only makes sense with a GPU, so swap it for the CPU one
 # unless a queue was named explicitly.
@@ -149,66 +147,16 @@ if [ -n "$LIST" ]; then
 fi
 if [ -z "$NAME" ]; then NAME="vepbench-$LABEL"; fi
 
-# Preflight on the submit host. A job that cannot run anything should not wait
-# in a queue to find out. A job that will skip some predictors is normal:
-# `--predictors all` always includes ones needing a licence (FoldX) or a
-# container runtime (DeepSequence), and the runner skips them with a reason.
-# Gating on "everything is installed" would refuse every `all` submission.
+# Preflight on the submit host. A job whose scores cannot run should not
+# wait in a queue to find out, but a job that will skip some is normal: foldx
+# needs a licensed binary and the published ThermoMPNN table may be absent,
+# and the runner records each skip with a reason rather than failing.
 if [ "$SKIP_DOCTOR" = "0" ]; then
-  echo "=== checking what can run ==="
-  # `doctor --json` exits non-zero whenever anything is missing, which for
-  # `--predictors all` is the normal case, so the exit code is deliberately
-  # not an answer to "is this worth submitting" -- see command_doctor in
-  # vepbench/cli.py. The report is. Keep stderr off stdout so log lines
-  # cannot corrupt the JSON, and let the ready count below make the call.
-  DOCTOR_ERR="$(mktemp)"
-  trap 'rm -f "$DOCTOR_ERR"' EXIT
-  REPORT="$("$PYTHON" -m vepbench doctor --predictors "${PREDICTORS[@]}" --json \
-            2>"$DOCTOR_ERR")" || true
-  SUMMARY="$(printf '%s' "$REPORT" | "$PYTHON" -c '
-import json, sys
-try:
-    report = json.load(sys.stdin)
-except ValueError:
-    print("UNREADABLE"); raise SystemExit(0)
-ready, blocked = report["ready"], report["blocked"]
-pending = report["needs_download"]
-print(f"{len(ready)}	{len(blocked)}	{len(pending)}")
-print("	".join(ready))
-print("	".join(sorted(blocked)))
-')"
-  if [ "$SUMMARY" = "UNREADABLE" ]; then
-    echo "warning: could not read the doctor report; submitting anyway." >&2
-    if [ -s "$DOCTOR_ERR" ]; then tail -3 "$DOCTOR_ERR" | sed 's/^/  /' >&2; fi
-  else
-    COUNTS="$(printf '%s' "$SUMMARY" | sed -n 1p)"
-    READY_N="$(printf '%s' "$COUNTS" | cut -f1)"
-    BLOCKED_N="$(printf '%s' "$COUNTS" | cut -f2)"
-    PENDING_N="$(printf '%s' "$COUNTS" | cut -f3)"
-    echo "  will run : $READY_N predictor(s)"
-    printf '%s\n' "$SUMMARY" | sed -n 2p | tr '\t' ' ' | fold -s -w 76 | sed 's/^/             /'
-    if [ "$PENDING_N" -gt 0 ]; then
-      echo "  will download weights first: $PENDING_N"
-    fi
-    if [ "$BLOCKED_N" -gt 0 ]; then
-      echo "  will skip: $BLOCKED_N (recorded in status.json with a reason)"
-      printf '%s\n' "$SUMMARY" | sed -n 3p | tr '\t' ' ' | fold -s -w 76 | sed 's/^/             /'
-      echo "             \`$PYTHON -m vepbench doctor\` explains each one"
-    fi
-    if [ "$READY_N" -eq 0 ]; then
-      echo >&2
-      echo "error: none of the requested predictors can run, so the job would do" >&2
-      echo "nothing. Install what you need, widen --predictors, or pass" >&2
-      echo "--skip-doctor to submit regardless." >&2
-      exit 1
-    fi
-  fi
+  echo "=== what can run ==="
+  "$PYTHON" -m vepbench status 2>/dev/null | sed -n '/^score /,$p' | sed 's/^/  /'
+  echo
 fi
 
-# Job scripts and logs belong with the analysis they produced, so they
-# follow VEPBENCH_OUTPUTS rather than always landing in the checkout. A run
-# directed elsewhere would otherwise leave its logs behind in a tree that
-# has nothing else to do with it.
 JOB_DIR="${VEPBENCH_OUTPUTS:-$ROOT/outputs}/jobs"
 LOG_DIR="$JOB_DIR/logs"
 mkdir -p "$LOG_DIR"
@@ -284,22 +232,19 @@ quote() { printf '%q ' "$@"; }
   else
     RUN_TARGET=("${TARGET_FLAG[@]}")
   fi
-  echo '"$PYTHON" -m vepbench run \'
+  echo '"$PYTHON" -m vepbench score \'
   if [ "$USE_ARRAY" = "1" ]; then
     echo '  --uniprot "$ACCESSION" \'
   else
     echo "  $(quote "${TARGET_FLAG[@]}")\\"
   fi
-  echo "  --predictors $(quote "${PREDICTORS[@]}")\\"
-  if [ ${#FEATURES[@]} -gt 0 ]; then echo "  --features $(quote "${FEATURES[@]}")\\"; fi
+  echo "  --scores $(quote "${SCORES[@]}")\\"
   if [ ${#EXTRA[@]} -gt 0 ]; then echo "  $(quote "${EXTRA[@]}")\\"; fi
   echo "  ;"
   echo
   echo 'echo "finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"'
   if [ "$USE_ARRAY" = "1" ]; then
-    echo '"$PYTHON" -m vepbench status --uniprot "$ACCESSION"'
-  else
-    echo "\"\$PYTHON\" -m vepbench status $(quote "${TARGET_FLAG[@]}")"
+    echo 'cat "${VEPBENCH_OUTPUTS}/$ACCESSION/status.json" 2>/dev/null || true'
   fi
 } > "$JOB_SCRIPT"
 chmod +x "$JOB_SCRIPT"

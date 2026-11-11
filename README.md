@@ -18,8 +18,17 @@ python3 -m vepbench fetch --uniprot-list ids.txt
 
 # the work
 python3 -m vepbench score  --uniprot-list ids.txt
+python3 -m vepbench check  --uniprot-list ids.txt      # did it all finish?
 python3 -m vepbench report --uniprot-list ids.txt --out report/
 ```
+
+`check` separates the two ways a run falls short: a protein with no table
+at all, whose task died or never started, and a protein whose table is
+missing one score, where that score failed while the rest succeeded. It
+exits non-zero if either happened and writes the accessions with no table
+to a file ready to resubmit. Scores that were never going to run --
+AlphaMissense on a non-human protein, FoldX where there are no ClinVar
+positions -- are counted as unavailable, not as failures.
 
 `python3 -m vepbench status` shows which scores are ready and which
 interpreter is which.

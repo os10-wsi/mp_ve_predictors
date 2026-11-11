@@ -160,6 +160,22 @@ def command_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_check(args: argparse.Namespace) -> int:
+    from vepbench.check import check, write_missing
+
+    accessions = read_accessions(args)
+    report = check(accessions, paths=PATHS)
+    print("\n".join(report.lines()))
+
+    if report.missing:
+        destination = Path(args.write_missing) if args.write_missing else (
+            PATHS.outputs / "missing.txt")
+        path = write_missing(report, destination)
+        print(f"\nthe {len(report.missing):,} with no table are listed in {path}")
+        print(f"  resubmit with: --uniprot-list {path}")
+    return 0 if report.complete else 1
+
+
 def command_fetch(args: argparse.Namespace) -> int:
     from vepbench.fetch import fetch_all
 
@@ -269,6 +285,13 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--force", action="store_true")
     fetch.add_argument("--include-somatic", action="store_true")
     fetch.set_defaults(func=command_fetch)
+
+    checked = targets(sub.add_parser(
+        "check", help="did every protein run, and did every score succeed"))
+    checked.add_argument("--write-missing",
+                         help="where to write the accessions with no table "
+                              "(default: <outputs>/missing.txt)")
+    checked.set_defaults(func=command_check)
 
     status = sub.add_parser("status", help="what is installed and available")
     status.set_defaults(func=command_status)

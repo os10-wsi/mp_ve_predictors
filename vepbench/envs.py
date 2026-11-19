@@ -142,6 +142,12 @@ def get_env(name: str) -> EnvSpec:
 
 # Grouping follows dependency compatibility, not taxonomy.
 register_env(EnvSpec(
+    name="clustering", python="3.11",
+    description="mmseqs2, for clustering a Pfam family before sampling it.",
+    notes="Needs the conda backend: mmseqs2 has no PyPI wheel. Nothing imports "
+          "it, so the binary is found on PATH or inside this environment.",
+))
+register_env(EnvSpec(
     name="esm", python="3.11",
     description="ESM-1v and ESM-2 through transformers, ESM-IF1 through fair-esm, and "
                 "ESM C and ESM3 through the EvolutionaryScale esm package.",

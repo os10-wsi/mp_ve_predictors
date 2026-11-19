@@ -24,9 +24,6 @@ dependencies = [
 
 [project.optional-dependencies]
 plots = ["matplotlib>=3.7"]
-# Proteome-scale tables. Nothing else in vepbench needs Arrow, and the
-# per-protein path works without it, so it stays optional.
-tables = ["pyarrow>=14"]
 test = ["pytest>=7.4"]
 dev = ["pytest>=7.4", "ruff>=0.4", "matplotlib>=3.7"]
 
@@ -54,7 +51,6 @@ ignore = ["E501", "PLR0913", "PLR2004", "PLR0912", "PLR0915", "PLR0917", "RUF005
 "scripts/runners/*.py" = ["PLC0415", "E402"]
 "scripts/*.py" = ["PLC0415", "E402", "RUF001"]
 "vepbench/cli.py" = ["PLC0415"]
-"vepbench/tables.py" = ["PLC0415"]
 "vepbench/runner.py" = ["PLC0415"]
 "vepbench/fetch.py" = ["PLC0415"]
 "vepbench/report.py" = ["PLC0415"]

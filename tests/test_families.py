@@ -86,13 +86,23 @@ class TestMembership:
     def test_nothing_built_is_an_empty_map(self, paths):
         assert membership(paths) == {}
 
-    def test_clustering_without_mmseqs_says_how_to_get_it(self, tmp_path,
+    def test_clustering_without_mmseqs_says_how_to_get_it(self, paths, tmp_path,
                                                           monkeypatch):
         from vepbench import families
 
-        monkeypatch.setattr(families, "have_mmseqs", lambda: None)
-        with pytest.raises(FamilyError, match="bioconda"):
-            families.cluster(tmp_path / "x.fasta")
+        monkeypatch.setattr(families, "have_mmseqs", lambda *a, **k: None)
+        with pytest.raises(FamilyError, match="install-env clustering"):
+            families.cluster(tmp_path / "x.fasta", paths=paths)
+
+    def test_mmseqs_is_found_inside_its_own_environment(self, paths):
+        # A conda environment under envs/ is not on PATH, so looking only
+        # there would make `install-env clustering` appear to do nothing.
+        from vepbench.families import have_mmseqs
+
+        binary = paths.envs / "clustering" / ".venv" / "bin" / "mmseqs"
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_text("#!/bin/sh\n")
+        assert have_mmseqs(paths) == str(binary)
 
 
 def planted(shift_by_family, predictors=("alpha", "beta"), n=300, seed=0):

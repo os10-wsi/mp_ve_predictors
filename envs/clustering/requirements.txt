@@ -1,0 +1,1 @@
+# Nothing from PyPI; mmseqs2 comes from bioconda. See conda-packages.txt.

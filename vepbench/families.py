@@ -148,21 +148,31 @@ def accession_of(header: str) -> str:
     return parts[1] if len(parts) >= 2 else text
 
 
-def have_mmseqs() -> str | None:
-    return shutil.which("mmseqs")
+def have_mmseqs(paths: Paths = PATHS) -> str | None:
+    """mmseqs on PATH, or inside the environment that installs it.
+
+    A conda environment built under envs/ is not on PATH, so looking only
+    there would make `install-env clustering` appear to do nothing.
+    """
+    found = shutil.which("mmseqs")
+    if found:
+        return found
+    bundled = paths.envs / "clustering" / ".venv" / "bin" / "mmseqs"
+    return str(bundled) if bundled.exists() else None
 
 
 def cluster(
     fasta: Path, *, identity: float = DEFAULT_IDENTITY, coverage: float = 0.8,
-    threads: int = 8, workdir: Path | None = None,
+    threads: int = 8, workdir: Path | None = None, paths: Paths = PATHS,
 ) -> list[str]:
     """Cluster a FASTA with mmseqs2, returning one accession per cluster."""
-    executable = have_mmseqs()
+    executable = have_mmseqs(paths)
     if executable is None:
         raise FamilyError(
-            "mmseqs is not on PATH. Install it with "
-            "`conda install -c bioconda mmseqs2`, or `vepbench install-env "
-            "clustering`, then rerun."
+            f"mmseqs was not found on PATH or at "
+            f"{paths.envs / 'clustering' / '.venv' / 'bin' / 'mmseqs'}. Install it "
+            f"with `vepbench install-env clustering --backend conda`, or "
+            f"`conda install -c bioconda mmseqs2`, then rerun."
         )
     fasta = Path(fasta)
     workdir = Path(workdir) if workdir else fasta.parent / "mmseqs"
@@ -227,7 +237,7 @@ def build(
     fasta = fetch_members(pfam_id, paths=paths, force=force)
     n_members = count_sequences(fasta)
     representatives = cluster(fasta, identity=identity, threads=threads,
-                              workdir=target / "mmseqs")
+                              workdir=target / "mmseqs", paths=paths)
     chosen = sample(representatives, n, seed=seed)
 
     listing.write_text("\n".join(chosen) + "\n")

@@ -1,0 +1,2 @@
+# mmseqs2 has no PyPI wheel, so this environment needs the conda backend.
+mmseqs2>=15

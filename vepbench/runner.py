@@ -382,6 +382,16 @@ def score_protein(
         outcomes.append(ScoreOutcome(name, CACHED, 0.0, int(cached.notna().sum()),
                                      source=f"cache ({source})"))
 
+    # Annotations, not scores: they describe the position rather than
+    # predicting anything, and nothing should put them on a ROC curve.
+    segments = protein.uniprot.transmembrane_segments
+    if segments:
+        table["tm_segment"] = [_segment_index(p, segments) for p in table["position"]]
+        table["in_transmembrane"] = table["tm_segment"] > 0
+    else:
+        table["tm_segment"] = 0
+        table["in_transmembrane"] = pd.NA
+
     if labels is not None:
         table["clinical_significance"] = _clinvar_significance(
             protein, variants, paths=paths)
@@ -389,6 +399,14 @@ def score_protein(
 
     return ProteinResult(uniprot_id=uniprot_id, table=table, outcomes=outcomes,
                          is_human=protein.is_human)
+
+
+def _segment_index(position: int, segments: list[tuple[int, int]]) -> int:
+    """Which transmembrane segment a position falls in, or 0 for none."""
+    for index, (start, end) in enumerate(segments, start=1):
+        if start <= position <= end:
+            return index
+    return 0
 
 
 def _clinvar_frame(protein: ProteinContext, paths: Paths) -> pd.DataFrame | None:

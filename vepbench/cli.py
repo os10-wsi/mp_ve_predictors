@@ -160,6 +160,71 @@ def command_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_family(args: argparse.Namespace) -> int:
+    from vepbench.families import FAMILIES, FamilyError, build
+
+    pfam_ids = args.pfam or list(FAMILIES)
+    if args.list:
+        print(f"{'pfam':10} family")
+        for pfam_id, name in FAMILIES.items():
+            print(f"{pfam_id:10} {name}")
+        return 0
+
+    combined: list[str] = []
+    for pfam_id in pfam_ids:
+        try:
+            result = build(pfam_id, n=args.n, identity=args.identity, seed=args.seed,
+                           paths=PATHS, force=args.force, threads=args.threads)
+        except FamilyError as exc:
+            print(f"error: {pfam_id}: {exc}", file=sys.stderr)
+            return 1
+        print(result.summary())
+        combined += result.accessions
+
+    listing = PATHS.outputs / "families" / "all_accessions.txt"
+    listing.parent.mkdir(parents=True, exist_ok=True)
+    unique = sorted(set(combined))
+    listing.write_text("\n".join(unique) + "\n")
+    print(f"\n{len(unique):,} accessions across {len(pfam_ids)} families -> {listing}")
+    print(f"  score them with: --uniprot-list {listing}")
+    return 0
+
+
+def command_family_report(args: argparse.Namespace) -> int:
+    from vepbench import family_report
+    from vepbench.families import membership
+
+    owners = membership(PATHS)
+    if not owners:
+        print("error: no families have been built; run `vepbench family` first",
+              file=sys.stderr)
+        return 1
+    frame = family_report.load_scored(sorted(owners), owners, outputs=PATHS.outputs,
+                                      columns=args.scores)
+    if frame.empty:
+        print("error: none of the family members have been scored yet",
+              file=sys.stderr)
+        return 1
+
+    predictors = family_report.predictors_in(frame)
+    out = Path(args.out) if args.out else PATHS.outputs / "families" / "report"
+    written = family_report.write_all(frame, predictors, out)
+
+    counts = frame.groupby("family")["uniprot_id"].nunique()
+    print(f"{len(frame):,} variant rows from {counts.sum():,} proteins "
+          f"across {len(counts)} families")
+    thin = counts[counts < family_report.MIN_PROTEINS]
+    if len(thin):
+        print(f"  {len(thin)} famil(y/ies) rest on fewer than "
+              f"{family_report.MIN_PROTEINS} proteins: {', '.join(thin.index)}")
+    for stem, path in written.items():
+        print(f"  {stem}: {path}")
+    if "family_auc" not in written:
+        print("  no family had enough ClinVar-labelled variants for an AUC, "
+              "which is expected: family members are mostly unreviewed")
+    return 0
+
+
 def command_check(args: argparse.Namespace) -> int:
     from vepbench.check import check, write_missing
 
@@ -292,6 +357,28 @@ def build_parser() -> argparse.ArgumentParser:
                          help="where to write the accessions with no table "
                               "(default: <outputs>/missing.txt)")
     checked.set_defaults(func=command_check)
+
+    family = sub.add_parser(
+        "family", help="build a scoreable sample from Pfam families")
+    family.add_argument("--pfam", nargs="*",
+                        help="Pfam accessions (default: the twenty built in)")
+    family.add_argument("--list", action="store_true",
+                        help="show the built-in families and exit")
+    family.add_argument("-n", type=int, default=1000,
+                        help="representatives to sample per family "
+                             "(default: %(default)s)")
+    family.add_argument("--identity", type=float, default=0.5,
+                        help="clustering identity (default: %(default)s)")
+    family.add_argument("--threads", type=int, default=8)
+    family.add_argument("--seed", type=int, default=0)
+    family.add_argument("--force", action="store_true")
+    family.set_defaults(func=command_family)
+
+    family_rep = selection(sub.add_parser(
+        "family-report",
+        help="compare predictor behaviour across the families"))
+    family_rep.add_argument("--out", help="output directory")
+    family_rep.set_defaults(func=command_family_report)
 
     status = sub.add_parser("status", help="what is installed and available")
     status.set_defaults(func=command_status)

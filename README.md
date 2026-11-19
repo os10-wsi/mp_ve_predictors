@@ -113,6 +113,38 @@ A protein is scored only where ClinVar gives at least five pathogenic and
 five benign variants. Below that the interval spans most of the possible
 range and the number means nothing; `--min-per-class` moves the line.
 
+## Protein families
+
+A second mode compares predictor behaviour across Pfam families rather
+than against ClinVar. Twenty large transmembrane families are built in
+(`vepbench family --list`), each verified to be 99-100% transmembrane.
+
+```bash
+python3 -m vepbench family -n 1000            # cluster and sample each family
+python3 -m vepbench score  --uniprot-list <outputs>/families/all_accessions.txt
+python3 -m vepbench family-report
+```
+
+Family membership is dominated by near-duplicates and by which organisms
+happen to have been sequenced, so each family is clustered with mmseqs2 at
+50% identity and the sample is drawn from the cluster representatives. A
+random sample of raw members would mostly measure sequencing bias.
+
+**There are no ROC curves here.** Family members are overwhelmingly
+unreviewed -- PF07690 has 1,620 reviewed entries out of a million -- so
+there are no ClinVar labels for almost all of them. `family-report`
+answers a different question in four tables: how each predictor's score
+distribution differs between families, how well every pair of predictors
+agrees within each family, how scores split between transmembrane and
+loop positions, and, where a family does contain ClinVar-labelled
+members, an AUC with the number of contributing proteins beside it.
+
+That last count matters: a family AUC resting on two proteins is not
+evidence, and the table says so rather than looking like the rest.
+Transmembrane annotations on unreviewed entries are automatic and
+sometimes absent, so the topology table reports how many rows were
+annotated at all.
+
 ## ClinVar labels
 
 Pathogenic and likely pathogenic are the positive class, benign and likely
